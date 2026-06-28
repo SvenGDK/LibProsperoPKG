@@ -1,14 +1,14 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // CNT container structures, entries and writer primitives.
 #nullable disable
+using LibProsperoPkg.Util;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using LibProsperoPkg.Util;
 
 namespace LibProsperoPkg.PKG;
 

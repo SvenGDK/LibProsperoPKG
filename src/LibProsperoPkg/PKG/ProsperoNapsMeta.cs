@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Producer for the NAPS metadata records (`common/etc/naps_meta_*.dat`) that reference tool
 // streams into the SI (install-metadata) segment of a finalized image for the streaming output

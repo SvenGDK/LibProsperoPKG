@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 inner-PFS layout generation: a prepared folder is turned
 // into a plaintext inner-PFS image with the superblock, inode table, super-root,
@@ -17,7 +17,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Linq;
-using LibProsperoPkg.PFS;
 
 namespace LibProsperoPkg.PFS;
 

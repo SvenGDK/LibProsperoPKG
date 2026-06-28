@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Producer for the trailing SI (install-metadata) segment of a finalized image, in the
 // DEBUG variant (FIH signed byte 0x00).
@@ -39,14 +39,13 @@
 // members are omitted - they are never fabricated.
 // See LibProsperoPKG/docs/implementation-status.md.
 
+using LibProsperoPkg.PlayGo;
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
-using LibProsperoPkg.PlayGo;
 
 namespace LibProsperoPkg.PKG;
 

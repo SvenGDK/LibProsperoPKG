@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Pre-compression byte shuffles for the PS5 PFSv3 compression file format.
 //

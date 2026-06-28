@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
 // Oodle Kraken (newLZ) encoder — a from-scratch managed encoder producing standard, decoder-valid
@@ -1261,7 +1261,7 @@ internal static class OodleKrakenEncoder
         public int Ml, Lrl, Src;  // command that produced it: Lrl literals at Src, then a match of Ml
         public int Idx, Dist;     // OffsIndex (0/1/2 rep, 3 new) and the chosen distance
         public int ContLrl, ContMl; // the reference field [6]: a free rep0 continuation bundled into this arrival
-                                     // (ContLrl literals then a rep0 match of ContMl at distance R0); 0 = none
+                                    // (ContLrl literals then a rep0 match of ContMl at distance R0); 0 = none
     }
 
     /// <summary>
@@ -1779,251 +1779,251 @@ internal static class OodleKrakenEncoder
         if (UseDpMml3) GreedyHashBytesOverride = DpMml3;
         try
         {
-        int chunkEnd = matchLimit + LiteralTail;
-        int maxArr = matchLimit; // a match can end at most here
-        var arr = new Arrival[maxArr + 1];
-        for (int i = 0; i <= maxArr; i++) arr[i].Cost = int.MaxValue;
-        arr[startPos] = new Arrival
-        {
-            Cost = 0,
-            R0 = MinDistance,
-            R1 = MinDistance,
-            R2 = MinDistance,
-            Src = startPos,
-            Idx = -1,
-        };
-
-        // Seed-index the private chain with the chunk's seed bytes [startPos-LiteralTail, startPos) so the
-        // DP can find matches that reference the 8-byte COPY_64 seed (e.g. a match that backward-extends
-        // into the seed). EncodeChunk indexes these into the shared greedy chain; the DP's private chain
-        // must mirror that or it underfinds the very first match (the cmd-0 backward-extension divergence).
-        dpHead.AsSpan().Fill(-1);
-        int inserted = startPos > LiteralTail ? startPos - LiteralTail : 0;
-
-        // the reference CacheTableMatchFinder table-bits N = clamp(ceil_log2(len), 18, 24) (reference routine/reference routine
-        // saturate then ceil-log2; <19 -> 18, else min(.,24)). Even tiny buffers use N=18 (a 2^18 zero-init table),
-        // so the 16-way windows + check bits behave identically to the reference regardless of input size.
-        int ctmfBits;
-        {
-            int len = data.Length < 1 ? 1 : data.Length;
-            int cl = 0;
-            while (cl < 24 && (1 << cl) < len) cl++; // ceil_log2(len), capped (no overflow)
-            ctmfBits = cl < 18 ? 18 : cl;
-        }
-        if (CtmfBitsOverride > 0) ctmfBits = CtmfBitsOverride;
-        Ctmf? ctmf = UseCtmfFinder ? new Ctmf(ctmfBits, data.Length) : null;
-        int ctmfIns = inserted;
-
-        int anchor = startPos;
-        long accLit = 0;
-
-        Span<int> cml = stackalloc int[8];
-        Span<int> cdist = stackalloc int[8];
-        Span<int> coff = stackalloc int[8];
-
-        for (int pos = startPos; pos <= matchStartLimit; pos++)
-        {
-            if (pos > startPos)
+            int chunkEnd = matchLimit + LiteralTail;
+            int maxArr = matchLimit; // a match can end at most here
+            var arr = new Arrival[maxArr + 1];
+            for (int i = 0; i <= maxArr; i++) arr[i].Cost = int.MaxValue;
+            arr[startPos] = new Arrival
             {
-                int alo = arr[anchor].R0 < MinDistance ? MinDistance : arr[anchor].R0;
-                accLit += KrakenOptimalCost.CostAddLiteral(data, pos - 1, alo, cc);
-                if (arr[pos].Cost != int.MaxValue)
-                {
-                    int run0 = pos - anchor;
-                    long viaAnchor = (long)arr[anchor].Cost +
-                                     (run0 > 2 ? KrakenOptimalCost.CostLen(cc, run0 - 3) : 0) + accLit;
-                    if (arr[pos].Cost < viaAnchor)
-                    {
-                        anchor = pos;
-                        accLit = 0;
-                    }
-                }
+                Cost = 0,
+                R0 = MinDistance,
+                R1 = MinDistance,
+                R2 = MinDistance,
+                Src = startPos,
+                Idx = -1,
+            };
+
+            // Seed-index the private chain with the chunk's seed bytes [startPos-LiteralTail, startPos) so the
+            // DP can find matches that reference the 8-byte COPY_64 seed (e.g. a match that backward-extends
+            // into the seed). EncodeChunk indexes these into the shared greedy chain; the DP's private chain
+            // must mirror that or it underfinds the very first match (the cmd-0 backward-extension divergence).
+            dpHead.AsSpan().Fill(-1);
+            int inserted = startPos > LiteralTail ? startPos - LiteralTail : 0;
+
+            // the reference CacheTableMatchFinder table-bits N = clamp(ceil_log2(len), 18, 24) (reference routine/reference routine
+            // saturate then ceil-log2; <19 -> 18, else min(.,24)). Even tiny buffers use N=18 (a 2^18 zero-init table),
+            // so the 16-way windows + check bits behave identically to the reference regardless of input size.
+            int ctmfBits;
+            {
+                int len = data.Length < 1 ? 1 : data.Length;
+                int cl = 0;
+                while (cl < 24 && (1 << cl) < len) cl++; // ceil_log2(len), capped (no overflow)
+                ctmfBits = cl < 18 ? 18 : cl;
             }
+            if (CtmfBitsOverride > 0) ctmfBits = CtmfBitsOverride;
+            Ctmf? ctmf = UseCtmfFinder ? new Ctmf(ctmfBits, data.Length) : null;
+            int ctmfIns = inserted;
 
-            inserted = InsertUpTo(data, dpHead, dpPrev, inserted, pos);
-            if (ctmf != null)
-                while (ctmfIns < inserted) { ctmf.Insert(data, ctmfIns); ctmfIns++; }
-            int nc = FindCandidates(data, pos, dpHead, dpPrev, matchLimit, cc, cml, cdist, coff, ctmf);
+            int anchor = startPos;
+            long accLit = 0;
 
-            long minBase = long.MaxValue;
-            for (int lrl = 0; lrl <= 3; lrl++)
+            Span<int> cml = stackalloc int[8];
+            Span<int> cdist = stackalloc int[8];
+            Span<int> coff = stackalloc int[8];
+
+            for (int pos = startPos; pos <= matchStartLimit; pos++)
             {
-                int run = lrl;
-                if (lrl == 3 && 3 < pos - anchor) run = pos - anchor; // 4th iteration = full run from anchor
-                int src = pos - run;
-                if (src < startPos) continue;
-                if (arr[src].Cost == int.MaxValue) continue;
-
-                int slo = arr[src].R0 < MinDistance ? MinDistance : arr[src].R0;
-                long litcost = (run == pos - anchor)
-                    ? accLit
-                    : KrakenOptimalCost.CostLiterals(data, pos - run, run, slo, cc);
-                long baseCost = (long)arr[src].Cost + litcost;
-                int litField = run < 3 ? run : 3;
-                if (run > 2) baseCost += KrakenOptimalCost.CostLen(cc, run - 3);
-
-                if (pos == DpTracePos)
-                    Console.WriteLine($"        [dptrace] pos={pos} lrl={lrl} run={run} src={src} arr[src].cost={arr[src].Cost} r0={arr[src].R0} litcost={litcost} base={baseCost} minBase={(minBase == long.MaxValue ? -1 : minBase)}");
-
-
-                int sr0 = arr[src].R0, sr1 = arr[src].R1, sr2 = arr[src].R2;
-
-                // Rep matches, longest-first: a shorter rep than one already relaxed is never tried.
-                int longestlo = 0;
-                for (int loi = 0; loi < 3; loi++)
+                if (pos > startPos)
                 {
-                    int rdist = loi == 0 ? sr0 : loi == 1 ? sr1 : sr2;
-                    if (rdist < MinDistance) continue;
-                    int repLen = RepMatchLength(data, pos, rdist, matchLimit);
-                    if (repLen < MinRepMatch || repLen <= longestlo) continue;
-                    longestlo = repLen;
-
-                    int n1, n2;
-                    if (loi == 0) { n1 = sr1; n2 = sr2; }
-                    else if (loi == 1) { n1 = sr0; n2 = sr2; }
-                    else { n1 = sr0; n2 = sr1; }
-
-                    if (UseSublenGate)
+                    int alo = arr[anchor].R0 < MinDistance ? MinDistance : arr[anchor].R0;
+                    accLit += KrakenOptimalCost.CostAddLiteral(data, pos - 1, alo, cc);
+                    if (arr[pos].Cost != int.MaxValue)
                     {
-                        // the reference routine: full-length relax always; sublen-fill gated by cfg
-                        // local_1850 = {3, 125} ⇒ fill only when repLen < 128 (reference routine).
-                        RelaxRep(arr, pos, repLen, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
-                        if (SublenFillAllowed(3, SublenFillThreshold - 3, repLen))
-                            for (int m = MinRepMatch; m < repLen; m++)
-                                RelaxRep(arr, pos, m, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
-                    }
-                    else
-                    {
-                        int hi = repLen < MinRepMatch + 8192 ? repLen : MinRepMatch + 8192;
-                        for (int m = MinRepMatch; m <= hi; m++)
-                            RelaxRep(arr, pos, m, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
-                        if (repLen > hi)
-                            RelaxRep(arr, pos, repLen, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
-                    }
-
-                    // faef0: value the immediate rep0 continuation off this full-length rep match.
-                    if (UseFaef0)
-                    {
-                        long costAtE = baseCost + KrakenOptimalCost.CostLoMatch(cc, litField, repLen, loi);
-                        Faef0(arr, data, pos + repLen, costAtE, repLen, run, loi, rdist, src,
-                              rdist, n1, n2, rdist, matchLimit, cc);
+                        int run0 = pos - anchor;
+                        long viaAnchor = (long)arr[anchor].Cost +
+                                         (run0 > 2 ? KrakenOptimalCost.CostLen(cc, run0 - 3) : 0) + accLit;
+                        if (arr[pos].Cost < viaAnchor)
+                        {
+                            anchor = pos;
+                            accLit = 0;
+                        }
                     }
                 }
 
-                // New-offset matches only when this lrl iteration set a new minimum base. On an EXACT base
-                // tie the reference still relaxes the (later, longer-LRL) run so its earlier-source path can win the
-                // arrival tie (see UseTieBreakLast): the gate becomes <= and RelaxNew keeps the last equal.
-                if (UseTieBreakLast ? baseCost <= minBase : baseCost < minBase)
+                inserted = InsertUpTo(data, dpHead, dpPrev, inserted, pos);
+                if (ctmf != null)
+                    while (ctmfIns < inserted) { ctmf.Insert(data, ctmfIns); ctmfIns++; }
+                int nc = FindCandidates(data, pos, dpHead, dpPrev, matchLimit, cc, cml, cdist, coff, ctmf);
+
+                long minBase = long.MaxValue;
+                for (int lrl = 0; lrl <= 3; lrl++)
                 {
-                    minBase = baseCost;
-                    for (int i = 0; i < nc; i++)
+                    int run = lrl;
+                    if (lrl == 3 && 3 < pos - anchor) run = pos - anchor; // 4th iteration = full run from anchor
+                    int src = pos - run;
+                    if (src < startPos) continue;
+                    if (arr[src].Cost == int.MaxValue) continue;
+
+                    int slo = arr[src].R0 < MinDistance ? MinDistance : arr[src].R0;
+                    long litcost = (run == pos - anchor)
+                        ? accLit
+                        : KrakenOptimalCost.CostLiterals(data, pos - run, run, slo, cc);
+                    long baseCost = (long)arr[src].Cost + litcost;
+                    int litField = run < 3 ? run : 3;
+                    if (run > 2) baseCost += KrakenOptimalCost.CostLen(cc, run - 3);
+
+                    if (pos == DpTracePos)
+                        Console.WriteLine($"        [dptrace] pos={pos} lrl={lrl} run={run} src={src} arr[src].cost={arr[src].Cost} r0={arr[src].R0} litcost={litcost} base={baseCost} minBase={(minBase == long.MaxValue ? -1 : minBase)}");
+
+
+                    int sr0 = arr[src].R0, sr1 = arr[src].R1, sr2 = arr[src].R2;
+
+                    // Rep matches, longest-first: a shorter rep than one already relaxed is never tried.
+                    int longestlo = 0;
+                    for (int loi = 0; loi < 3; loi++)
                     {
-                        int cm = cml[i];
-                        if (cm <= longestlo) break; // candidates are length-desc
-                        int d = cdist[i];
-                        if (d == sr0 || d == sr1 || d == sr2) continue; // a recent distance is a rep, not new
-                        long baseOff = baseCost + coff[i];
+                        int rdist = loi == 0 ? sr0 : loi == 1 ? sr1 : sr2;
+                        if (rdist < MinDistance) continue;
+                        int repLen = RepMatchLength(data, pos, rdist, matchLimit);
+                        if (repLen < MinRepMatch || repLen <= longestlo) continue;
+                        longestlo = repLen;
+
+                        int n1, n2;
+                        if (loi == 0) { n1 = sr1; n2 = sr2; }
+                        else if (loi == 1) { n1 = sr0; n2 = sr2; }
+                        else { n1 = sr0; n2 = sr1; }
+
                         if (UseSublenGate)
                         {
                             // the reference routine: full-length relax always; sublen-fill gated by cfg
-                            // local_1830 = {local_3190+1, 128−(local_3190+1)}, fill floor local_3190
-                            // (= 3 on the lvl7 mml=3 path, else 4) ⇒ fill only when cm < 128.
-                            int newFloor = UseDpMml3 ? 3 : 4;
-                            int newLo = newFloor + 1;
-                            RelaxNew(arr, pos, cm, baseOff, litField, d, sr0, sr1, run, src, cc);
-                            if (SublenFillAllowed(newLo, SublenFillThreshold - newLo, cm))
-                                for (int m = newFloor; m < cm; m++)
-                                    RelaxNew(arr, pos, m, baseOff, litField, d, sr0, sr1, run, src, cc);
+                            // local_1850 = {3, 125} ⇒ fill only when repLen < 128 (reference routine).
+                            RelaxRep(arr, pos, repLen, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
+                            if (SublenFillAllowed(3, SublenFillThreshold - 3, repLen))
+                                for (int m = MinRepMatch; m < repLen; m++)
+                                    RelaxRep(arr, pos, m, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
                         }
                         else
                         {
-                            // the reference routine (faafdump ground truth, pos=1123 d567): the NEW-match
-                            // relax loop runs over EVERY length from the DP mml (3 on the lvl7 mml=3 path,
-                            // else MinMatch=4) up to the full candidate length cm — NOT from MinMatch. A
-                            // len-3 sublen of a longer (cm>=4) match (e.g. arr[1126]=NEW(3,d567)) is the
-                            // FIRST arrival-cost divergence vs the reference; flooring at MinMatch=4 skipped it.
-                            int newFloor = UseDpMml3 ? 3 : MinMatch;
-                            int hi = cm < newFloor + 8192 ? cm : newFloor + 8192;
-                            for (int m = newFloor; m <= hi; m++)
-                                RelaxNew(arr, pos, m, baseOff, litField, d, sr0, sr1, run, src, cc);
-                            if (cm > hi)
-                                RelaxNew(arr, pos, cm, baseOff, litField, d, sr0, sr1, run, src, cc);
-                            else if (cm < newFloor)
-                                // a finder match shorter than the floor (only possible when mml>cm):
-                                // relax it directly as the primary so it is not dropped entirely.
-                                RelaxNew(arr, pos, cm, baseOff, litField, d, sr0, sr1, run, src, cc);
+                            int hi = repLen < MinRepMatch + 8192 ? repLen : MinRepMatch + 8192;
+                            for (int m = MinRepMatch; m <= hi; m++)
+                                RelaxRep(arr, pos, m, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
+                            if (repLen > hi)
+                                RelaxRep(arr, pos, repLen, loi, baseCost, litField, rdist, n1, n2, run, src, cc);
                         }
 
-                        // faef0: value the immediate rep0 continuation off this full-length new match.
+                        // faef0: value the immediate rep0 continuation off this full-length rep match.
                         if (UseFaef0)
                         {
-                            long costAtE = baseOff + KrakenOptimalCost.CostNormalMatch(cc, litField, cm);
-                            Faef0(arr, data, pos + cm, costAtE, cm, run, 3, d, src,
-                                  d, sr0, sr1, d, matchLimit, cc);
+                            long costAtE = baseCost + KrakenOptimalCost.CostLoMatch(cc, litField, repLen, loi);
+                            Faef0(arr, data, pos + repLen, costAtE, repLen, run, loi, rdist, src,
+                                  rdist, n1, n2, rdist, matchLimit, cc);
                         }
                     }
-                }
 
-                if (pos == DpTracePos && DpTraceDst > 0 && DpTraceDst < arr.Length)
+                    // New-offset matches only when this lrl iteration set a new minimum base. On an EXACT base
+                    // tie the reference still relaxes the (later, longer-LRL) run so its earlier-source path can win the
+                    // arrival tie (see UseTieBreakLast): the gate becomes <= and RelaxNew keeps the last equal.
+                    if (UseTieBreakLast ? baseCost <= minBase : baseCost < minBase)
+                    {
+                        minBase = baseCost;
+                        for (int i = 0; i < nc; i++)
+                        {
+                            int cm = cml[i];
+                            if (cm <= longestlo) break; // candidates are length-desc
+                            int d = cdist[i];
+                            if (d == sr0 || d == sr1 || d == sr2) continue; // a recent distance is a rep, not new
+                            long baseOff = baseCost + coff[i];
+                            if (UseSublenGate)
+                            {
+                                // the reference routine: full-length relax always; sublen-fill gated by cfg
+                                // local_1830 = {local_3190+1, 128−(local_3190+1)}, fill floor local_3190
+                                // (= 3 on the lvl7 mml=3 path, else 4) ⇒ fill only when cm < 128.
+                                int newFloor = UseDpMml3 ? 3 : 4;
+                                int newLo = newFloor + 1;
+                                RelaxNew(arr, pos, cm, baseOff, litField, d, sr0, sr1, run, src, cc);
+                                if (SublenFillAllowed(newLo, SublenFillThreshold - newLo, cm))
+                                    for (int m = newFloor; m < cm; m++)
+                                        RelaxNew(arr, pos, m, baseOff, litField, d, sr0, sr1, run, src, cc);
+                            }
+                            else
+                            {
+                                // the reference routine (faafdump ground truth, pos=1123 d567): the NEW-match
+                                // relax loop runs over EVERY length from the DP mml (3 on the lvl7 mml=3 path,
+                                // else MinMatch=4) up to the full candidate length cm — NOT from MinMatch. A
+                                // len-3 sublen of a longer (cm>=4) match (e.g. arr[1126]=NEW(3,d567)) is the
+                                // FIRST arrival-cost divergence vs the reference; flooring at MinMatch=4 skipped it.
+                                int newFloor = UseDpMml3 ? 3 : MinMatch;
+                                int hi = cm < newFloor + 8192 ? cm : newFloor + 8192;
+                                for (int m = newFloor; m <= hi; m++)
+                                    RelaxNew(arr, pos, m, baseOff, litField, d, sr0, sr1, run, src, cc);
+                                if (cm > hi)
+                                    RelaxNew(arr, pos, cm, baseOff, litField, d, sr0, sr1, run, src, cc);
+                                else if (cm < newFloor)
+                                    // a finder match shorter than the floor (only possible when mml>cm):
+                                    // relax it directly as the primary so it is not dropped entirely.
+                                    RelaxNew(arr, pos, cm, baseOff, litField, d, sr0, sr1, run, src, cc);
+                            }
+
+                            // faef0: value the immediate rep0 continuation off this full-length new match.
+                            if (UseFaef0)
+                            {
+                                long costAtE = baseOff + KrakenOptimalCost.CostNormalMatch(cc, litField, cm);
+                                Faef0(arr, data, pos + cm, costAtE, cm, run, 3, d, src,
+                                      d, sr0, sr1, d, matchLimit, cc);
+                            }
+                        }
+                    }
+
+                    if (pos == DpTracePos && DpTraceDst > 0 && DpTraceDst < arr.Length)
+                    {
+                        Arrival t = arr[DpTraceDst];
+                        Console.WriteLine($"        [dptrace]   after lrl={lrl}: arr[{DpTraceDst}] cost={(t.Cost == int.MaxValue ? -1 : t.Cost)} src={t.Src} lrl={t.Lrl} ml={t.Ml} idx={t.Idx} dist={t.Dist}");
+                    }
+                }
+            }
+
+            // Cheapest reachable arrival + its trailing literal run.
+            if (DpProbeHi > 0)
+            {
+                for (int q = DpProbeLo; q <= DpProbeHi && q < arr.Length; q++)
                 {
-                    Arrival t = arr[DpTraceDst];
-                    Console.WriteLine($"        [dptrace]   after lrl={lrl}: arr[{DpTraceDst}] cost={(t.Cost == int.MaxValue ? -1 : t.Cost)} src={t.Src} lrl={t.Lrl} ml={t.Ml} idx={t.Idx} dist={t.Dist}");
+                    Arrival a = arr[q];
+                    if (a.Cost == int.MaxValue)
+                        Console.WriteLine($"        [dpprobe] arr[{q}] UNREACHED");
+                    else
+                        Console.WriteLine($"        [dpprobe] arr[{q}] cost={a.Cost} src={a.Src} lrl={a.Lrl} ml={a.Ml} idx={a.Idx} dist={a.Dist} reps=({a.R0},{a.R1},{a.R2}) cont(lrl={a.ContLrl},ml={a.ContMl})");
                 }
             }
-        }
+            int bestEnd = -1;
+            long bestTotal = long.MaxValue;
+            for (int e = startPos + 1; e <= matchLimit; e++)
+            {
+                if (arr[e].Cost == int.MaxValue) continue;
+                int lo = arr[e].R0 < MinDistance ? MinDistance : arr[e].R0;
+                long total = (long)arr[e].Cost + KrakenOptimalCost.CostLiterals(data, e, chunkEnd - e, lo, cc);
+                if (total < bestTotal)
+                {
+                    bestTotal = total;
+                    bestEnd = e;
+                }
+            }
+            if (bestEnd < 0)
+                return new List<Command>();
 
-        // Cheapest reachable arrival + its trailing literal run.
-        if (DpProbeHi > 0)
-        {
-            for (int q = DpProbeLo; q <= DpProbeHi && q < arr.Length; q++)
+            var rev = new List<Command>();
+            int p2 = bestEnd;
+            int guard = 0;
+            while (p2 != startPos && guard++ <= maxArr)
             {
-                Arrival a = arr[q];
-                if (a.Cost == int.MaxValue)
-                    Console.WriteLine($"        [dpprobe] arr[{q}] UNREACHED");
-                else
-                    Console.WriteLine($"        [dpprobe] arr[{q}] cost={a.Cost} src={a.Src} lrl={a.Lrl} ml={a.Ml} idx={a.Idx} dist={a.Dist} reps=({a.R0},{a.R1},{a.R2}) cont(lrl={a.ContLrl},ml={a.ContMl})");
+                Arrival a = arr[p2];
+                if (DpTraceDst > 0 && p2 >= DpTracePos - 6 && p2 <= DpTraceDst + 56)
+                    Console.WriteLine($"        [dpback] p2={p2} src={a.Src} lrl={a.Lrl} ml={a.Ml} idx={a.Idx} dist={a.Dist} contMl={a.ContMl} cost={(a.Cost == int.MaxValue ? -1 : a.Cost)}");
+                if (a.Ml <= 0 || a.Src < startPos || a.Src >= p2)
+                    break;
+                if (a.ContMl > 0)
+                {
+                    // Two-step arrival: a primary match then a free rep0 continuation. Emit later-first
+                    // (continuation, then primary); the rep0 reuses the primary's distance (idx 0).
+                    int sCont = a.Src + a.Lrl + a.Ml; // end of primary = start of continuation literals
+                    rev.Add(new Command(sCont, a.ContLrl, a.R0, a.ContMl, 0));
+                }
+                rev.Add(new Command(a.Src, a.Lrl, a.Dist, a.Ml, a.Idx));
+                p2 = a.Src;
             }
-        }
-        int bestEnd = -1;
-        long bestTotal = long.MaxValue;
-        for (int e = startPos + 1; e <= matchLimit; e++)
-        {
-            if (arr[e].Cost == int.MaxValue) continue;
-            int lo = arr[e].R0 < MinDistance ? MinDistance : arr[e].R0;
-            long total = (long)arr[e].Cost + KrakenOptimalCost.CostLiterals(data, e, chunkEnd - e, lo, cc);
-            if (total < bestTotal)
-            {
-                bestTotal = total;
-                bestEnd = e;
-            }
-        }
-        if (bestEnd < 0)
-            return new List<Command>();
-
-        var rev = new List<Command>();
-        int p2 = bestEnd;
-        int guard = 0;
-        while (p2 != startPos && guard++ <= maxArr)
-        {
-            Arrival a = arr[p2];
-            if (DpTraceDst > 0 && p2 >= DpTracePos - 6 && p2 <= DpTraceDst + 56)
-                Console.WriteLine($"        [dpback] p2={p2} src={a.Src} lrl={a.Lrl} ml={a.Ml} idx={a.Idx} dist={a.Dist} contMl={a.ContMl} cost={(a.Cost == int.MaxValue ? -1 : a.Cost)}");
-            if (a.Ml <= 0 || a.Src < startPos || a.Src >= p2)
-                break;
-            if (a.ContMl > 0)
-            {
-                // Two-step arrival: a primary match then a free rep0 continuation. Emit later-first
-                // (continuation, then primary); the rep0 reuses the primary's distance (idx 0).
-                int sCont = a.Src + a.Lrl + a.Ml; // end of primary = start of continuation literals
-                rev.Add(new Command(sCont, a.ContLrl, a.R0, a.ContMl, 0));
-            }
-            rev.Add(new Command(a.Src, a.Lrl, a.Dist, a.Ml, a.Idx));
-            p2 = a.Src;
-        }
-        if (p2 != startPos)
-            return new List<Command>(); // trace did not reach the origin → discard (greedy fallback)
-        rev.Reverse();
-        return rev;
+            if (p2 != startPos)
+                return new List<Command>(); // trace did not reach the origin → discard (greedy fallback)
+            rev.Reverse();
+            return rev;
         }
         finally { GreedyHashBytesOverride = saveDpHb; }
     }

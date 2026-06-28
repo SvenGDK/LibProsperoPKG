@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 *finalized-image* outer-PFS AES-XTS encryptor/decryptor — the encryption layer of
 // the `--oformat nwonly` package. This is DISTINCT from the inner-PFS
@@ -19,8 +19,8 @@
 // packages that validated primitive as first-class, in-memory, managed API (no temp
 // files), ready for the nwonly outer-PFS assembler to consume.
 #nullable enable
-using System;
 using LibProsperoPkg.Util;
+using System;
 
 namespace LibProsperoPkg.PFS;
 

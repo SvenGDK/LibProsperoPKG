@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Wired-in PS5 publishing key material, embedded as resources so the build is
 // self-contained. None of these are secret retail keys: they are the published PKG-metadata

@@ -1,13 +1,11 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Types for the PS5 PFS *compression file format*.
 //
 // These mirror the target format's numeric values byte-for-byte. They intentionally do NOT describe the PFS
 // *filesystem* superblock version, which is a distinct, unrelated version number.
 #nullable enable
-using System;
-
 namespace LibProsperoPkg.PFS.Compression;
 
 /// <summary>

@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 *finalized-image* outer-PFS STRUCTURE generator for the
 // `--oformat nwonly` package. This assembles the plaintext outer-PFS
@@ -38,8 +38,6 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
-using LibProsperoPkg.PFS;
-using LibProsperoPkg.Util;
 
 namespace LibProsperoPkg.PFS;
 

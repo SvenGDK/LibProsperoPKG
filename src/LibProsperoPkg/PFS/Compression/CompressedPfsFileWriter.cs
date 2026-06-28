@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Writer for the PS5 PFSv3 (and PFSv2) compression file format — the "PFSC" container.
 // Each block is Kraken-compressed with OodleKrakenEncoder; blocks that do not compress — or cannot be
@@ -14,10 +14,10 @@
 // SHA3-256 file digest at 0x28. Compressed output is validated by decompressing it
 // and comparing byte-for-byte against the original input.
 #nullable enable
+using LibProsperoPkg.PFS.Compression.Oodle;
 using System;
 using System.Buffers.Binary;
 using System.IO;
-using LibProsperoPkg.PFS.Compression.Oodle;
 
 namespace LibProsperoPkg.PFS.Compression;
 

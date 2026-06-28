@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Reader/parser for the PS5 PFSv3 (and PFSv2) compression file format — the "PFSC"
 // container.
@@ -12,11 +12,11 @@
 // Every field decoded here was validated byte-for-byte against reference output, including: the SHA3-256 file digest at 0x28, the 7-entry section directory at
 // 0x48, the block boundary table (id=3) and the per-block SHA3-256 hash table (id=4).
 #nullable enable
+using LibProsperoPkg.PFS.Compression.Oodle;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
-using LibProsperoPkg.PFS.Compression.Oodle;
 
 namespace LibProsperoPkg.PFS.Compression;
 

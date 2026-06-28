@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 PFSv3 inner-image packer/unpacker — the Kraken "PFSC" container used for
 // inner images (pfs_image.dat). This is the Kraken counterpart of the zlib packer

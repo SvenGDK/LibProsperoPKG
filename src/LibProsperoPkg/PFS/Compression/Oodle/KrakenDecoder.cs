@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
 // Kraken (newLZ) decoder for "nwonly" PFSv3 Kraken blocks: entropy-coded
@@ -1030,7 +1030,7 @@ internal static class KrakenDecoder
             return false;
 
         int k, n;
-        for (;;)
+        for (; ; )
         {
             if (dst >= dstEnd) break;
 
@@ -1122,7 +1122,7 @@ internal static class KrakenDecoder
 
         int count = -br.BitPos;
         uint v = (uint)(At(br.B, p++) & (255 >> br.BitPos));
-        for (;;)
+        for (; ; )
         {
             if (v == 0)
             {

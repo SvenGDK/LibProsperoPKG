@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 PFS image AES-XTS encryption + decryption: a plaintext PFS
 // image is turned into an encrypted one (and back) by XTS-encrypting every filesystem sector
@@ -13,11 +13,10 @@
 // round-trip-validated code path — the same way ProsperoPfsc reuses the
 // internal PFSC encoder for compression.
 #nullable enable
+using LibProsperoPkg.Util;
 using System;
 using System.IO;
 using System.Security.Cryptography;
-using LibProsperoPkg.PFS;
-using LibProsperoPkg.Util;
 
 namespace LibProsperoPkg.PFS;
 

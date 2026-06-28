@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // reader for the PS5 outer PKG container. Parses the big-endian header
 // and the 0x20-byte entry-meta table, resolving each entry's name from the name table.

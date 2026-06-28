@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PFSC block encoder. A plain PFSC writer only emits
 // a PFSC header with every block stored at full size (no compression). This encoder produces
@@ -8,11 +8,11 @@
 // The format produced here is byte-for-byte readable by the existing
 // LibProsperoPkg.PFS.PFSCReader (validated by round-trip), so it works for PS5 image workflows.
 #nullable enable
+using LibProsperoPkg.Util;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using LibProsperoPkg.Util;
 
 namespace LibProsperoPkg.PFS;
 

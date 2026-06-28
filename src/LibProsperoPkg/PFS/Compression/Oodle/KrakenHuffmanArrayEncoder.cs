@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
 // Kraken (newLZ) Huffman ARRAY encoder — the exact inverse of KrakenDecoder's entropy
@@ -490,7 +490,8 @@ internal static class KrakenHuffmanArrayEncoder
         }
 
         // Introsort recursion-depth budget k (reference pre-grown stack size).
-        int k = 0; { uint u = (uint)n; do { u = (u >> 1) + (u >> 2); k++; } while (u != 0); }
+        int k = 0;
+        { uint u = (uint)n; do { u = (u >> 1) + (u >> 2); k++; } while (u != 0); }
 
         var stack = new System.Collections.Generic.Stack<(int lo, int hi)>();
         int first = 0, last = n - 1, count = n;

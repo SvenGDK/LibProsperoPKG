@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // High-level PS5 package builder. Turns a prepared application
 // folder into a complete, signed PS5 package entirely in-process: there is no external tool to
@@ -9,6 +9,9 @@
 // <see cref="LibProsperoPkg.Keys.ProsperoKeys"/> and the signing path through
 // <see cref="LibProsperoPkg.PKG.ProsperoPkgSigner"/>.
 
+using LibProsperoPkg.GP5;
+using LibProsperoPkg.Keys;
+using LibProsperoPkg.PKG;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -18,9 +21,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using LibProsperoPkg.GP5;
-using LibProsperoPkg.Keys;
-using LibProsperoPkg.PKG;
 
 namespace LibProsperoPkg;
 

@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // CRC-32C (Castagnoli) reducer used by reference tool for the PS5 sce_suppl
 // config/{content-id}/playgo-chunk.crc file. The publishing tool reduces the *finalized mount

@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 outer-PFS *signing* primitives for the `--oformat nwonly`
 // finalized image. The outer superblock builder and metadata writer outputs are Validated byte-exact against the reference
@@ -20,7 +20,6 @@
 #nullable enable
 using System;
 using System.Security.Cryptography;
-using LibProsperoPkg.Util;
 
 namespace LibProsperoPkg.PFS;
 

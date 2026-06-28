@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PFS image key derivation. A package's outer PFS image is AES-XTS encrypted with a (tweak, data)
 // key pair derived from the EKPFS ("encrypted key for PFS") and the 16-byte superblock seed; the
@@ -7,8 +7,8 @@
 // and the image keys are produced by the keyed crypto ladder over (EKPFS, seed). These map onto the
 // Crypto primitives via the SHA3 / keyed-crypto switches.
 #nullable enable
-using System;
 using LibProsperoPkg.Util;
+using System;
 
 namespace LibProsperoPkg.PFS;
 

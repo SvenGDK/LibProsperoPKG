@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Model of the PS5 "Prospero" GP5 project format (*.gp5). This is the XML project
 // descriptor used to describe a PS5 package, with

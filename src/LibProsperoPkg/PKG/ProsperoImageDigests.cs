@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 finalized-image / CNT digest algorithms — Validated byte-exact against
 // three reference debug packages (DebugSettings.pkg, Downloads.pkg, InternetBrowser.pkg).

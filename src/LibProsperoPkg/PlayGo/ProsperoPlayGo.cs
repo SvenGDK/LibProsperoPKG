@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Generators for the PS5 PlayGo / about helper files that the publishing
 // pipeline creates during PKG building (they are not part of the loose input folder): namely
@@ -12,12 +12,12 @@
 // (at 0x148 / 0x158), which describe the chunk data layout and are supplied by the builder.
 
 #nullable enable
+using LibProsperoPkg.Util;
 using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Reflection;
 using System.Text;
-using LibProsperoPkg.Util;
 
 namespace LibProsperoPkg.PlayGo;
 

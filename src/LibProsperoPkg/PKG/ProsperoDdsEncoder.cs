@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 sce_sys DDS (texture) encoder. Next to each of the icon0.png / pic0.png / pic1.png /
 // pic2.png media files, a same-named *.dds re-encode of the image is created (entry ids
@@ -15,9 +15,9 @@
 
 #nullable enable
 
+using ImageMagick;
 using System;
 using System.IO;
-using ImageMagick;
 
 namespace LibProsperoPkg.PKG;
 

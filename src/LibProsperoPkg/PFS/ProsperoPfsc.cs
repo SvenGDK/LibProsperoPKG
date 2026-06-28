@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5-facing PFSC image pack/unpack. It wraps a prepared image file
 // (exFAT/UFS/inner pfs_image.dat) into a PFSC-compressed image and reverses the operation.
@@ -10,7 +10,6 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.IO.MemoryMappedFiles;
-using LibProsperoPkg.PFS;
 
 namespace LibProsperoPkg.PFS;
 

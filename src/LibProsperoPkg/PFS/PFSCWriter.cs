@@ -1,10 +1,10 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PFS image structures, builder and reader primitives.
 #nullable disable
-using System.IO;
 using LibProsperoPkg.Util;
+using System.IO;
 
 namespace LibProsperoPkg.PFS;
 

@@ -1,5 +1,5 @@
 // PS Multi Tools - Backup manager and toolkit for PS5 consoles.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by

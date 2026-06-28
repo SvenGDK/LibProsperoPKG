@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // PS5 PKG signing primitives. This makes the wired-in PS5 key material
 // (RSA-3072 PKG-metadata key, passcode blob, mount-image blob) actually used by the package
@@ -20,10 +20,10 @@
 // reference-only secrets that cannot be reproduced here. This class supplies the signing/key
 // primitives the write path consumes, and is fully self-validated in isolation.
 
+using LibProsperoPkg.Keys;
 using System;
 using System.Security.Cryptography;
 using System.Text;
-using LibProsperoPkg.Keys;
 
 namespace LibProsperoPkg.PKG;
 

@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // End-to-end PS5 PKG/CNT writer: turns a prepared folder into a complete
 // \x7FCNT package fully in-process. It assembles the outer container header, the system-container
@@ -12,17 +12,15 @@
 // outer PFS decrypts back to the inner image, and every internal digest is self-consistent.
 
 #nullable enable
+using LibProsperoPkg.PFS;
+using LibProsperoPkg.PFS.Compression;
+using LibProsperoPkg.Util;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
-using LibProsperoPkg.PFS;
-using LibProsperoPkg.PKG;
-using LibProsperoPkg.Util;
-using LibProsperoPkg.PFS.Compression;
 
 namespace LibProsperoPkg.PKG;
 

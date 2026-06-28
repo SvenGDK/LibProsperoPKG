@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // writer for the PS5 outer PKG/CNT container: the exact inverse of
 // ProsperoPkgReader. It assembles a big-endian CNT header, the 0x20-byte entry-meta table and

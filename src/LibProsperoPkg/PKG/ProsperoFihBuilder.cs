@@ -1,5 +1,5 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
-// Copyright (C) 2011-2026 SvenGDK
+// Copyright (C) 2026 SvenGDK
 //
 // Produces the PS5 finalized image (\x7FFIH), in the "debug" variant
 // (signed byte 0x00) used by consoles whose debug mode relaxes finalized-image verification.
