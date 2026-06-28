@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- Run the Roslyn (CA) and code-style (IDE) analyzers at build time. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Documentation comments reference some symbols by short name; do not fail the build on
+         missing-XML-comment (CS1591) warnings. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- NuGet package metadata. -->
+    <AssemblyName>LibProsperoPkg</AssemblyName>
+    <RootNamespace>LibProsperoPkg</RootNamespace>
+    <PackageId>LibProsperoPkg</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>SvenGDK</Authors>
+    <Product>LibProsperoPkg</Product>
+    <Description>A .NET library for reading, building and inspecting PS5 packages.</Description>
+    <Copyright>Copyright © SvenGDK 2011-2026</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>playstation;ps5;prospero;pkg;pfs;gp5;package</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- README shipped inside the NuGet package. -->
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Publishing key material embedded for the signer: the PKG-metadata RSA-3072 private key,
+         the publishing passcode key and the mount-image key. -->
+    <EmbeddedResource Include="Keys\Data\pkg_meta_rsa_key.pem">
+      <LogicalName>LibProsperoPkg.Keys.Data.pkg_meta_rsa_key.pem</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Keys\Data\passcode.bin">
+      <LogicalName>LibProsperoPkg.Keys.Data.passcode.bin</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Keys\Data\mount_image.bin">
+      <LogicalName>LibProsperoPkg.Keys.Data.mount_image.bin</LogicalName>
+    </EmbeddedResource>
+    <!-- The debug "right" module (sce_sys/about/right.sprx) injected into the inner-PFS file set
+         so the produced debug package layout is complete. -->
+    <EmbeddedResource Include="PlayGo\Data\right.sprx">
+      <LogicalName>LibProsperoPkg.PlayGo.Data.right.sprx</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- AnyCPU image library used by the sce_sys DDS (BC7) re-encoder. -->
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.13.1" />
+  </ItemGroup>
+
+</Project>
