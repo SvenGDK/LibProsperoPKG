@@ -25,7 +25,7 @@
     <Authors>SvenGDK</Authors>
     <Product>LibProsperoPkg</Product>
     <Description>A .NET library for reading, building and inspecting PS5 packages.</Description>
-    <Copyright>Copyright © SvenGDK 2011-2026</Copyright>
+    <Copyright>Copyright © SvenGDK 2026</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>playstation;ps5;prospero;pkg;pfs;gp5;package</PackageTags>
