@@ -30,7 +30,12 @@ The primary entry point.
 
 - **`ProsperoBuildOptions`** — the build description: `Mode`, `OutputFormat`, `SourceFolder`,
   `OutputFolder`, `ContentId`, `Passcode`, `Title`, `TitleId`, `Version`,
-  `GenerateParamJsonIfMissing`, `CompressInnerImage`, `InnerCompression`.
+  `GenerateParamJsonIfMissing`, `CompressInnerImage`, `InnerCompression`, `ApplicationType`,
+  `ApplicationDrmType`, `ContentBadgeType`, `FakeSignSelfModules`, `FselfOptions`.
+- **`ProsperoApplicationType`** — the application type: `NotSpecified`,
+  `PaidStandaloneFullApp`, `UpgradableApp`, `DemoApp`, `FreemiumApp`. `ProsperoApplicationTypes`
+  maps it to the generated `param.json` `applicationDrmType` (`free` / `standard` / `freemium`)
+  and provides `DisplayName` and `Parse`.
 - **`ProsperoBuildResult`** — `OutputPath` and a list of non-fatal `Warnings`.
 - **`ProsperoPackageMode`** — `Application`, `Homebrew`, `AdditionalContentData`,
   `AdditionalContentNoData`.
@@ -161,7 +166,9 @@ details of these types and are not part of the public surface. `PfsBlock` and
 - **`ProsperoFself`** — parses SELF containers and generates a fake-self from a 64-bit ELF.
   `IsSelf`, `IsElf`, `Parse`, `Validate`, and `MakeFself` (with `FselfOptions` for app and firmware
   version and an optional authority id). The read model exposes `SelfImage`, `SelfSegment`, and
-  `SelfExtInfo`.
+  `SelfExtInfo`. The high-level builder wires this in through `ProsperoBuildOptions.FakeSignSelfModules`,
+  which fake-signs raw ELF modules in the source tree before packing (producing an fPKG) and restores
+  the originals afterward.
 
 ---
 
@@ -187,22 +194,41 @@ are exposed for advanced use.
 The library can be published as a shared library (`.so` / `.dylib`) with a flat C export surface,
 built by the `native-linux` and `native-macos` workflows. The export source and the matching
 `libprosperopkg.h` header live in the repository under `.github/native/`. The committed project is
-unchanged; the workflow injects the NativeAOT build properties at build time.
+unchanged; the workflow injects the NativeAOT build properties at build time. Each build verifies
+the exported symbol table and packages the library, header, license text and a `SHA256SUMS`
+manifest as an artifact.
 
 | Function | Purpose |
 |---|---|
 | `lpp_version` | Return the library version string. |
+| `lpp_abi_version` | Return the numeric ABI version of the export surface (`LPP_ABI_VERSION`). |
 | `lpp_last_error` | Return the last error message on the calling thread. |
 | `lpp_is_valid_content_id` / `lpp_is_valid_title_id` | Validate identifiers. |
 | `lpp_compose_content_id` | Compose a 36-char content id. |
 | `lpp_build_package` | Run the full build from a prepared folder. |
+| `lpp_build_package_ex` | Run the full build with the complete option set (`lpp_build_options`). |
 | `lpp_detect_package_type` | Return the package type of a file (`LPP_TYPE_*`). |
 | `lpp_build_inner_image` | Lay a folder out into an inner-PFS image (`LPP_FORM_*`). |
 | `lpp_encrypt_pfs_image` | AES-XTS-encrypt a plaintext inner-PFS image in place. |
 | `lpp_pack_pfs_image` / `lpp_unpack_pfs_image` | Pack / unpack a PFSv3 PFSC container. |
 | `lpp_is_self` / `lpp_is_elf` / `lpp_is_ucp` | Detect a SELF, a 64-bit ELF, or a UCP archive. |
+| `lpp_read_self_info` | Read the extended info and segment count from a SELF module. |
 | `lpp_make_fself` | Generate a fake-self from a 64-bit ELF. |
+| `lpp_make_fself_ex` | Generate a fake-self with explicit version and authority-id options. |
+| `lpp_make_fself_file` | Read an ELF from a path, fake-sign it, and write the result to a path. |
+| `lpp_fake_sign_folder` | Fake-sign every raw ELF module under a folder in place. |
+| `lpp_application_type_name` | Return the display name of an application type (`LPP_APP_TYPE_*`). |
+| `lpp_application_drm_type` | Return the generated `applicationDrmType` token for an application type. |
+| `lpp_parse_application_type` | Parse an application-type display name into its code. |
+
+`lpp_build_package_ex` takes a pointer to `lpp_build_options`, a zero-initialized struct whose
+`struct_size` field is set to `sizeof(lpp_build_options)` before use. It carries the application
+type, badge and DRM overrides, param.json generation, inner compression, and the fake-self settings
+(version, firmware and authority-id) applied to raw ELF modules before packing.
 
 Strings cross the boundary as UTF-8. String-output functions return the number of bytes written, or
-a negative value when the caller buffer is too small. Enums pass as ints; the header defines the
-`LPP_MODE_*`, `LPP_OUTPUT_*`, `LPP_INNER_*`, `LPP_FORM_*`, and `LPP_TYPE_*` values.
+the negative of the required size (including the terminator) when the caller buffer is too small.
+Status functions return 0 on success and a negative value on failure, with the message available
+through `lpp_last_error`. Enums pass as ints; the header defines the `LPP_ABI_VERSION`,
+`LPP_MODE_*`, `LPP_OUTPUT_*`, `LPP_INNER_*`, `LPP_FORM_*`, `LPP_TYPE_*`, and `LPP_APP_TYPE_*`
+values.

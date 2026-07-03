@@ -15,10 +15,12 @@ This folder contains the developer documentation for **LibProsperoPkg**, a
 ## At a glance
 
 LibProsperoPkg turns a prepared PS5 application folder into a complete, signed package
-entirely in managed code. The pipeline is:
+in-process. The pipeline is:
 
 ```
 prepared folder (sce_sys/ + eboot + data)
+        │
+        ▼  optional fake-sign of raw ELF modules (FakeSignSelfModules)
         │
         ▼  inner PFS layout (ProsperoPfsLayout)
    plaintext inner PFS image

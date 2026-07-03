@@ -21,7 +21,7 @@
     <AssemblyName>LibProsperoPkg</AssemblyName>
     <RootNamespace>LibProsperoPkg</RootNamespace>
     <PackageId>LibProsperoPkg</PackageId>
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <Authors>SvenGDK</Authors>
     <Product>LibProsperoPkg</Product>
     <Description>A .NET library for reading, building and inspecting PS5 packages.</Description>

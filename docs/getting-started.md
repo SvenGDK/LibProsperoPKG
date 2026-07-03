@@ -79,6 +79,38 @@ var result = ProsperoPackageBuilder.Build(options, Console.WriteLine);
 Console.WriteLine(result.OutputPath);
 ```
 
+## Fake-signing modules and application type
+
+To pack raw ELF modules that are not yet SELF, set `FakeSignSelfModules`. The builder converts
+`eboot.bin` and any `*.elf` / `*.prx` / `*.sprx` in the source folder to fake-self before layout
+and restores the original files afterward. Modules that are already SELF are skipped.
+
+`ApplicationType` selects the `applicationDrmType` written to a generated `param.json`:
+
+| `ProsperoApplicationType` | `applicationDrmType` |
+|---|---|
+| `PaidStandaloneFullApp` | `standard` |
+| `UpgradableApp` | `standard` |
+| `FreemiumApp` | `freemium` |
+| `DemoApp` | `free` |
+| `NotSpecified` | `free` |
+
+```csharp
+var options = new ProsperoBuildOptions
+{
+    Mode                = ProsperoPackageMode.Application,
+    OutputFormat        = ProsperoOutputFormat.DebugImage,
+    SourceFolder        = "/path/to/prepared/app",
+    OutputFolder        = "/path/to/output",
+    ContentId           = "UP9000-PPSA00000_00-PROSPERO00000000",
+    TitleId             = "PPSA00000",
+    Title               = "My PS5 Application",
+    Version             = "01.00",
+    ApplicationType     = ProsperoApplicationType.FreemiumApp,
+    FakeSignSelfModules = true,
+};
+```
+
 ## Notes on content identifiers
 
 - **Content ID** is 36 characters: `XXYYYY-XXXXYYYYY_00-ZZZZZZZZZZZZZZZZ`.

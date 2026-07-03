@@ -139,6 +139,45 @@ public sealed class ProsperoBuildOptions
     /// </list>
     /// </summary>
     public ProsperoInnerCompression InnerCompression { get; set; } = ProsperoInnerCompression.None;
+
+    /// <summary>
+    /// The application type recorded in a generated <c>param.json</c> ("Paid Standalone Full App",
+    /// "Upgradable App", "Demo App", "Freemium App"). It is written as the <c>applicationDrmType</c>
+    /// bucket (and drives the <c>pfsimage.xml</c> <c>&lt;application-type&gt;</c>). Defaults to
+    /// <see cref="ProsperoApplicationType.NotSpecified"/> (a free/debug package). Only affects a
+    /// param.json the builder generates; an existing <c>sce_sys/param.json</c> is used verbatim.
+    /// </summary>
+    public ProsperoApplicationType ApplicationType { get; set; } = ProsperoApplicationType.NotSpecified;
+
+    /// <summary>
+    /// Explicit override for the generated <c>param.json</c> <c>applicationDrmType</c> token
+    /// (e.g. <c>free</c>, <c>standard</c>, <c>freemium</c>). When <see langword="null"/> the value is
+    /// derived from <see cref="ApplicationType"/>.
+    /// </summary>
+    public string? ApplicationDrmType { get; set; }
+
+    /// <summary>
+    /// Optional <c>contentBadgeType</c> written to a generated <c>param.json</c>. When
+    /// <see langword="null"/> the field is omitted.
+    /// </summary>
+    public int? ContentBadgeType { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, raw ELF executable modules in the source folder
+    /// (<c>eboot.bin</c> and <c>*.elf</c> / <c>*.prx</c> / <c>*.sprx</c>) are fake-signed
+    /// (converted to a debug fake-self via <see cref="LibProsperoPkg.Content.ProsperoFself.MakeFself"/>)
+    /// before packing, producing an installable fake package (fPKG). Files that are already SELF are
+    /// left untouched. The conversion is non-destructive: the original module bytes are restored
+    /// after the build. Off by default.
+    /// </summary>
+    public bool FakeSignSelfModules { get; set; }
+
+    /// <summary>
+    /// Fake-self options (app/firmware version, authority-id override) applied when
+    /// <see cref="FakeSignSelfModules"/> is enabled. When <see langword="null"/> the defaults are used
+    /// (versions <c>0</c>, authority id derived from the ELF).
+    /// </summary>
+    public LibProsperoPkg.Content.FselfOptions? FselfOptions { get; set; }
 }
 
 /// <summary>The result of a build: the output path plus any non-fatal warnings.</summary>
@@ -349,7 +388,18 @@ public static class ProsperoPackageBuilder
         // Ensure the package has a param.json.
         EnsureParamJson(options, sourceFolder, log, warnings);
 
-        return BuildCore(options, sourceFolder, log, warnings);
+        // Optionally fake-sign raw ELF modules (eboot.bin / *.elf / *.prx / *.sprx) into debug
+        // fake-selfs so the produced package is an installable fake package (fPKG). The conversion is
+        // done in place but is non-destructive: the original bytes are restored once packing completes.
+        var fakeSelfRestore = PrepareFakeSelfModules(options, sourceFolder, log, warnings);
+        try
+        {
+            return BuildCore(options, sourceFolder, log, warnings);
+        }
+        finally
+        {
+            RestoreFakeSelfModules(fakeSelfRestore, log);
+        }
     }
 
     /// <summary>
@@ -562,6 +612,111 @@ public static class ProsperoPackageBuilder
         return diffs;
     }
 
+    /// <summary>
+    /// Fake-signs raw ELF executable modules found under <paramref name="sourceFolder"/> in place,
+    /// converting each to a debug fake-self. Candidate files are <c>eboot.bin</c> and any
+    /// <c>*.elf</c> / <c>*.prx</c> / <c>*.sprx</c>. Files that are already SELF, or that are not a
+    /// 64-bit ELF, are skipped. Unlike the build pipeline's fake-sign step this conversion is
+    /// permanent — the original bytes are not restored.
+    /// </summary>
+    /// <param name="sourceFolder">Folder searched recursively for modules.</param>
+    /// <param name="options">Fake-self options (versions, authority-id override), or <see langword="null"/> for defaults.</param>
+    /// <param name="log">Optional progress callback.</param>
+    /// <returns>The number of modules converted.</returns>
+    public static int FakeSignModulesInPlace(
+        string sourceFolder,
+        LibProsperoPkg.Content.FselfOptions? options = null,
+        Action<string>? log = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceFolder);
+        if (!Directory.Exists(sourceFolder))
+            throw new DirectoryNotFoundException($"Source folder not found: {sourceFolder}");
+
+        int converted = 0;
+        foreach (var path in Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories))
+        {
+            if (!IsFakeSignCandidate(Path.GetFileName(path)))
+                continue;
+
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(path); }
+            catch (IOException) { continue; }
+
+            if (!LibProsperoPkg.Content.ProsperoFself.IsElf(bytes) || LibProsperoPkg.Content.ProsperoFself.IsSelf(bytes))
+                continue;
+
+            byte[] fself = LibProsperoPkg.Content.ProsperoFself.MakeFself(bytes, options);
+            File.WriteAllBytes(path, fself);
+            converted++;
+            log?.Invoke($"Fake-signed {Path.GetRelativePath(sourceFolder, path)} ({bytes.Length} -> {fself.Length} bytes).");
+        }
+
+        return converted;
+    }
+
+    // Executable-module file names/extensions that are candidates for fake-signing before packing.
+    private static bool IsFakeSignCandidate(string fileName) =>
+        fileName.Equals("eboot.bin", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".elf", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".prx", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".sprx", StringComparison.OrdinalIgnoreCase);
+
+    // Fake-signs raw ELF modules in the source tree in place, returning the original bytes so the caller
+    // can restore them once packing is done. Returns an empty list when the option is disabled or there is
+    // nothing to convert. Files that are already SELF (including the injected right.sprx) are skipped.
+    private static List<(string Path, byte[] Original)> PrepareFakeSelfModules(
+        ProsperoBuildOptions options, string sourceFolder, Action<string> log, List<string> warnings)
+    {
+        var restore = new List<(string Path, byte[] Original)>();
+        if (!options.FakeSignSelfModules)
+            return restore;
+
+        LibProsperoPkg.Content.FselfOptions? fselfOptions = options.FselfOptions;
+        foreach (var path in Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories).ToList())
+        {
+            if (!IsFakeSignCandidate(Path.GetFileName(path)))
+                continue;
+
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(path); }
+            catch (IOException) { continue; }
+
+            // Only convert a raw ELF; an already-signed SELF (or non-ELF payload) is left as-is.
+            if (!LibProsperoPkg.Content.ProsperoFself.IsElf(bytes) || LibProsperoPkg.Content.ProsperoFself.IsSelf(bytes))
+                continue;
+
+            byte[] fself;
+            try
+            {
+                fself = LibProsperoPkg.Content.ProsperoFself.MakeFself(bytes, fselfOptions);
+            }
+            catch (ArgumentException ex)
+            {
+                warnings.Add($"Could not fake-sign {Path.GetFileName(path)}: {ex.Message}");
+                continue;
+            }
+
+            restore.Add((path, bytes));
+            File.WriteAllBytes(path, fself);
+            log($"Fake-signed {Path.GetRelativePath(sourceFolder, path)} ({bytes.Length} -> {fself.Length} bytes).");
+        }
+
+        if (restore.Count == 0)
+            warnings.Add("FakeSignSelfModules was enabled but no raw ELF modules were found to fake-sign.");
+
+        return restore;
+    }
+
+    // Restores the original module bytes saved by PrepareFakeSelfModules (best-effort).
+    private static void RestoreFakeSelfModules(List<(string Path, byte[] Original)> restore, Action<string> log)
+    {
+        foreach (var (path, original) in restore)
+        {
+            try { File.WriteAllBytes(path, original); }
+            catch (IOException) { log($"Warning: could not restore original module '{path}' after fake-signing."); }
+        }
+    }
+
     private static void EnsureParamJson(
         ProsperoBuildOptions options, string sourceFolder, Action<string> log, List<string> warnings)
     {
@@ -591,6 +746,7 @@ public static class ProsperoPackageBuilder
         var root = new JsonObject
         {
             ["applicationCategoryType"] = CategoryTypeForMode(options.Mode),
+            ["applicationDrmType"] = options.ApplicationDrmType ?? ProsperoApplicationTypes.ApplicationDrmType(options.ApplicationType),
             ["contentId"] = options.ContentId,
             ["contentVersion"] = version,
             ["masterVersion"] = version,
@@ -602,6 +758,9 @@ public static class ProsperoPackageBuilder
                 ["en-US"] = new JsonObject { ["titleName"] = title },
             },
         };
+
+        if (options.ContentBadgeType is int badge)
+            root["contentBadgeType"] = badge;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }

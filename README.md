@@ -18,6 +18,12 @@ application.
   RSA-3072 metadata signing and the finalized debug image are produced by the library itself.
 - **Reader and writer.** Parse and inspect existing PS5 packages (`\x7FCNT` / `\x7FFIH`) and
   build new ones.
+- **Fake-signed packages (fPKG).** Optionally fake-sign raw ELF modules (`eboot.bin`, `*.elf`,
+  `*.prx`, `*.sprx`) to fake-self before packing, producing an installable fake package. The
+  conversion is non-destructive: source modules are restored after the build.
+- **Application type.** `ProsperoApplicationType` selects the generated `param.json`
+  `applicationDrmType` (`free` / `standard` / `freemium`), covering paid, upgradable, demo and
+  freemium apps.
 - **Texture generation.** The `sce_sys` icon/picture DDS (BC7) re-encoder is backed by Magick.NET.
 
 ---
@@ -70,6 +76,30 @@ foreach (var warning in result.Warnings)
     Console.WriteLine($"Warning: {warning}");
 ```
 
+### Fake-signing modules (fPKG)
+
+Set `FakeSignSelfModules` to convert raw ELF modules in the source folder to fake-self before
+packing. Use `ApplicationType` to control the generated `param.json` `applicationDrmType`:
+
+```csharp
+var options = new ProsperoBuildOptions
+{
+    Mode                = ProsperoPackageMode.Application,
+    OutputFormat        = ProsperoOutputFormat.DebugImage,
+    SourceFolder        = @"/path/to/prepared/app",
+    OutputFolder        = @"/path/to/output",
+    ContentId           = "UP9000-PPSA00000_00-PROSPERO00000000",
+    TitleId             = "PPSA00000",
+    Title               = "My PS5 Application",
+    Version             = "01.00",
+    ApplicationType     = ProsperoApplicationType.FreemiumApp,
+    FakeSignSelfModules = true,
+};
+```
+
+Files that are already SELF are left untouched, and the original module bytes are restored once
+packing completes.
+
 ### Inspecting an existing package
 
 ```csharp
@@ -87,7 +117,7 @@ Console.WriteLine($"Entries:    {pkg.Entries.Count}");
 
 | Namespace | Key types |
 |---|---|
-| `LibProsperoPkg` | `ProsperoPackageBuilder`, `ProsperoBuildOptions`, `ProsperoBuildResult`, `ProsperoPackageMode`, `ProsperoOutputFormat`, `InnerImageForm` |
+| `LibProsperoPkg` | `ProsperoPackageBuilder`, `ProsperoBuildOptions`, `ProsperoBuildResult`, `ProsperoPackageMode`, `ProsperoOutputFormat`, `InnerImageForm`, `ProsperoApplicationType` |
 | `LibProsperoPkg.PKG` | `ProsperoPkgBuilder`, `ProsperoPkgReader`, `ProsperoCntWriter`, `ProsperoFihBuilder`, `ProsperoPkgSigner`, `ProsperoDdsEncoder`, `ProsperoPkg`, `ProsperoPkgHeader` |
 | `LibProsperoPkg.PFS` | `ProsperoPfsLayout`, `ProsperoPfsImage`, `ProsperoPfsc` |
 | `LibProsperoPkg.GP5` | `Gp5Creator`, `Gp5Project` and its element model |

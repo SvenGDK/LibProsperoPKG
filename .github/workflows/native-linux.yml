@@ -2,12 +2,14 @@ name: Native library (Linux)
 
 # Builds the LibProsperoPkg shared library (.so) with NativeAOT for linux-x64 and
 # linux-arm64. The AOT and shared-library settings are injected into the project at build
-# time; the committed project is never modified. Each architecture builds on a native
-# runner, so no cross-compilation toolchain is required.
+# time; the committed project is never modified. Each architecture builds on its own runner,
+# so no cross-compilation toolchain is required. After the build the workflow verifies the
+# exported symbol table and packages the library, header, license text and a checksum manifest
+# as an artifact.
 
 on:
   workflow_dispatch:
-  
+
 permissions:
   contents: read
 
@@ -29,6 +31,9 @@ jobs:
     env:
       PROJECT: src/LibProsperoPkg/LibProsperoPkg.csproj
       PROJECT_DIR: src/LibProsperoPkg
+      NATIVE_DIR: .github/native
+      LICENSE_FILE: LICENSE
+      NOTICE_FILE: NOTICE
 
     steps:
       - name: Check out
@@ -39,7 +44,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install NativeAOT prerequisites
+      - name: Install build prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
@@ -55,7 +60,7 @@ jobs:
             $text = $text.Substring(0, $idx) + $inject + $text.Substring($idx + '</PropertyGroup>'.Length)
             Set-Content -NoNewline -Path $csproj -Value $text
           }
-          Copy-Item '.github/native/NativeExports.cs' (Join-Path $env:PROJECT_DIR 'NativeExports.cs') -Force
+          Copy-Item (Join-Path $env:NATIVE_DIR 'NativeExports.cs') (Join-Path $env:PROJECT_DIR 'NativeExports.cs') -Force
           if (-not (Select-String -Path $csproj -Pattern '<PublishAot>true</PublishAot>' -Quiet)) {
             Write-Error 'csproj patch did not apply'
             exit 1
@@ -75,12 +80,17 @@ jobs:
             exit 1
           }
           New-Item -ItemType Directory -Force artifacts | Out-Null
-          Get-ChildItem -Path $pub -Recurse -Include *.so | Copy-Item -Destination artifacts
-          Copy-Item '.github/native/libprosperopkg.h' artifacts
+          $mine | Copy-Item -Destination artifacts
+          # A lib-prefixed alias so downstream consumers can link with -lprosperopkg.
+          Copy-Item $mine[0].FullName (Join-Path 'artifacts' 'libprosperopkg.so') -Force
+          Copy-Item (Join-Path $env:NATIVE_DIR 'libprosperopkg.h') artifacts
+          Copy-Item $env:LICENSE_FILE artifacts
+          Copy-Item $env:NOTICE_FILE artifacts
 
       - name: Verify exported symbols
         shell: bash
         run: |
+          set -euo pipefail
           lib=$(ls artifacts/*LibProsperoPkg.so 2>/dev/null | head -n 1)
           if [ -z "$lib" ]; then
             echo "LibProsperoPkg shared library (.so) not found in artifacts:"
@@ -90,14 +100,20 @@ jobs:
           echo "Inspecting $lib"
           syms=$(nm -D --defined-only "$lib" | awk '{print $NF}' | sed -e 's/^_//' -e 's/@.*//')
           missing=0
-          for s in lpp_version lpp_last_error lpp_is_valid_content_id lpp_is_valid_title_id \
-                   lpp_compose_content_id lpp_build_package lpp_detect_package_type \
-                   lpp_build_inner_image lpp_encrypt_pfs_image lpp_pack_pfs_image \
-                   lpp_unpack_pfs_image lpp_is_self lpp_is_elf lpp_is_ucp lpp_make_fself; do
+          for s in $(cat "$NATIVE_DIR/exports.txt"); do
             if ! grep -Fxq "$s" <<< "$syms"; then echo "MISSING: $s"; missing=1; fi
           done
           if [ "$missing" -ne 0 ]; then echo "Expected C exports are missing"; exit 1; fi
           echo "All expected exports present"
+
+      - name: Checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          ( cd artifacts && sha256sum \
+              *LibProsperoPkg.so libprosperopkg.so libprosperopkg.h \
+              "$(basename "$LICENSE_FILE")" "$(basename "$NOTICE_FILE")" > SHA256SUMS )
+          cat artifacts/SHA256SUMS
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

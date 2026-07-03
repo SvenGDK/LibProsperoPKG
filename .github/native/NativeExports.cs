@@ -10,8 +10,14 @@
 // Strings cross the boundary as UTF-8 (NUL-terminated `const char*`); output strings are
 // copied into caller-provided buffers, so the caller owns all memory. Enum arguments are
 // passed as 32-bit integers whose values are documented in libprosperopkg.h.
+//
+// String-output functions return the number of bytes written (excluding the terminator) on
+// success, or the negative of the required size (including the terminator) when the buffer is
+// too small, so a caller can size a buffer and retry. Status functions return 0 on success and
+// a negative value on failure; call lpp_last_error for a description.
 
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using LibProsperoPkg;
@@ -21,8 +27,44 @@ using LibProsperoPkg.PKG;
 
 namespace LibProsperoPkg.Native;
 
+/// <summary>
+/// Blittable mirror of the C <c>lpp_build_options</c> struct. Passed by pointer to
+/// <see cref="NativeExports.BuildPackageEx"/>. The layout must match libprosperopkg.h exactly:
+/// ten 32-bit integers, three 64-bit integers, then the UTF-8 string pointers.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct LppBuildOptions
+{
+    public int StructSize;
+    public int Mode;
+    public int OutputFormat;
+    public int InnerCompression;
+    public int ApplicationType;
+    public int ContentBadgeType;   // negative to omit
+    public int GenerateParamJson;  // 0/1
+    public int CompressInnerImage; // 0/1
+    public int FakeSignSelf;       // 0/1
+    public int HasAuthorityId;     // 0/1
+
+    public ulong AppVersion;
+    public ulong FirmwareVersion;
+    public ulong AuthorityId;
+
+    public byte* SourceFolder;
+    public byte* OutputFolder;
+    public byte* ContentId;
+    public byte* Passcode;
+    public byte* Title;
+    public byte* TitleId;
+    public byte* Version;
+    public byte* ApplicationDrmType;
+}
+
 internal static unsafe class NativeExports
 {
+    // Bump when the exported surface changes in a way consumers can gate on.
+    private const int AbiVersionValue = 2;
+
     [ThreadStatic]
     private static string? _lastError;
 
@@ -31,6 +73,10 @@ internal static unsafe class NativeExports
     /// <summary>Returns a pointer to a static, NUL-terminated version string.</summary>
     [UnmanagedCallersOnly(EntryPoint = "lpp_version")]
     public static byte* Version() => VersionPtr;
+
+    /// <summary>Returns the numeric ABI version of the exported surface.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_abi_version")]
+    public static int AbiVersion() => AbiVersionValue;
 
     /// <summary>Copies the most recent error message for the current thread into a caller buffer.</summary>
     /// <returns>The number of UTF-8 bytes written (excluding the terminator), or a negative value on error.</returns>
@@ -107,6 +153,64 @@ internal static unsafe class NativeExports
             };
 
             ProsperoBuildResult result = ProsperoPackageBuilder.Build(options);
+            int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
+            return written < 0 ? written : 0;
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Builds a package from a prepared source folder using the full option set carried by
+    /// <paramref name="options"/> (application type, fake-signing, param.json generation, inner
+    /// compression, badge and DRM overrides). The output path is written into
+    /// <paramref name="outPath"/> as UTF-8.
+    /// </summary>
+    /// <returns>0 on success; a negative value on failure (call lpp_last_error for the message).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_build_package_ex")]
+    public static int BuildPackageEx(LppBuildOptions* options, byte* outPath, int outPathCapacity)
+    {
+        try
+        {
+            if (options is null)
+            {
+                _lastError = "options pointer is null";
+                return -1;
+            }
+
+            LppBuildOptions o = *options;
+            var build = new ProsperoBuildOptions
+            {
+                SourceFolder = Utf8ToString(o.SourceFolder) ?? "",
+                OutputFolder = Utf8ToString(o.OutputFolder) ?? "",
+                ContentId = Utf8ToString(o.ContentId) ?? "",
+                Passcode = Fallback(Utf8ToString(o.Passcode), new string('0', 32)),
+                Title = Utf8ToString(o.Title) ?? "",
+                TitleId = Utf8ToString(o.TitleId) ?? "",
+                Version = Fallback(Utf8ToString(o.Version), "01.00"),
+                Mode = ToEnum<ProsperoPackageMode>(o.Mode),
+                OutputFormat = ToEnum<ProsperoOutputFormat>(o.OutputFormat),
+                InnerCompression = ToEnum<ProsperoInnerCompression>(o.InnerCompression),
+                ApplicationType = ToEnum<ProsperoApplicationType>(o.ApplicationType),
+                GenerateParamJsonIfMissing = o.GenerateParamJson != 0,
+                CompressInnerImage = o.CompressInnerImage != 0,
+                FakeSignSelfModules = o.FakeSignSelf != 0,
+            };
+
+            string? drm = Utf8ToString(o.ApplicationDrmType);
+            if (!string.IsNullOrEmpty(drm))
+                build.ApplicationDrmType = drm;
+
+            if (o.ContentBadgeType >= 0)
+                build.ContentBadgeType = o.ContentBadgeType;
+
+            if (o.FakeSignSelf != 0)
+                build.FselfOptions = FselfOptionsFrom(o.AppVersion, o.FirmwareVersion, o.AuthorityId, o.HasAuthorityId);
+
+            ProsperoBuildResult result = ProsperoPackageBuilder.Build(build);
             int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
             return written < 0 ? written : 0;
         }
@@ -256,6 +360,56 @@ internal static unsafe class NativeExports
         => ProsperoUcp.IsUcp(AsSpan(data, length)) ? 1 : 0;
 
     /// <summary>
+    /// Reads the SELF extended-info and segment count from an in-memory SELF module. Any output
+    /// pointer may be NULL. When the module carries no extended-info block, the ext-info outputs
+    /// are zero-filled and the call still succeeds.
+    /// </summary>
+    /// <returns>0 on success; -1 when the buffer is not a valid SELF (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_read_self_info")]
+    public static int ReadSelfInfo(
+        byte* data,
+        int length,
+        ulong* authorityId,
+        ulong* programType,
+        ulong* appVersion,
+        ulong* firmwareVersion,
+        byte* digest32,
+        int* segmentCount)
+    {
+        try
+        {
+            if (data is null || length <= 0)
+            {
+                _lastError = "empty SELF input";
+                return -1;
+            }
+
+            SelfImage image = ProsperoFself.Parse(new ReadOnlySpan<byte>(data, length));
+            SelfExtInfo? ext = image.ExtInfo;
+
+            if (authorityId is not null) *authorityId = ext?.AuthorityId ?? 0;
+            if (programType is not null) *programType = ext?.ProgramType ?? 0;
+            if (appVersion is not null) *appVersion = ext?.AppVersion ?? 0;
+            if (firmwareVersion is not null) *firmwareVersion = ext?.FirmwareVersion ?? 0;
+            if (segmentCount is not null) *segmentCount = image.Segments.Count;
+
+            if (digest32 is not null)
+            {
+                var dst = new Span<byte>(digest32, 32);
+                dst.Clear();
+                ext?.Digest.AsSpan(0, Math.Min(32, ext.Digest.Length)).CopyTo(dst);
+            }
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// Generates a fake-self from a 64-bit ELF. Pass <paramref name="outBuffer"/> = NULL or
     /// <paramref name="capacity"/> = 0 to query the required size (returned as a positive value
     /// without writing).
@@ -266,6 +420,134 @@ internal static unsafe class NativeExports
     /// </returns>
     [UnmanagedCallersOnly(EntryPoint = "lpp_make_fself")]
     public static int MakeFself(byte* elf, int elfLength, byte* outBuffer, int capacity)
+        => MakeFselfCore(elf, elfLength, null, outBuffer, capacity);
+
+    /// <summary>
+    /// Generates a fake-self from a 64-bit ELF with explicit fake-self options (application and
+    /// firmware version, and an optional authority-id override). The size-query and buffer
+    /// semantics match <see cref="MakeFself"/>.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_make_fself_ex")]
+    public static int MakeFselfEx(
+        byte* elf,
+        int elfLength,
+        ulong appVersion,
+        ulong firmwareVersion,
+        ulong authorityId,
+        int hasAuthorityId,
+        byte* outBuffer,
+        int capacity)
+        => MakeFselfCore(elf, elfLength, FselfOptionsFrom(appVersion, firmwareVersion, authorityId, hasAuthorityId), outBuffer, capacity);
+
+    /// <summary>
+    /// Reads a 64-bit ELF from <paramref name="elfPath"/>, generates a fake-self and writes it to
+    /// <paramref name="outPath"/>. Fake-self options are taken from the version/authority arguments.
+    /// </summary>
+    /// <returns>The number of bytes written on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_make_fself_file")]
+    public static int MakeFselfFile(
+        byte* elfPath,
+        byte* outPath,
+        ulong appVersion,
+        ulong firmwareVersion,
+        ulong authorityId,
+        int hasAuthorityId)
+    {
+        try
+        {
+            string? inPath = Utf8ToString(elfPath);
+            string? dstPath = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(inPath) || string.IsNullOrEmpty(dstPath))
+            {
+                _lastError = "elf_path and out_path are required";
+                return -1;
+            }
+
+            byte[] elf = File.ReadAllBytes(inPath);
+            byte[] fself = ProsperoFself.MakeFself(elf, FselfOptionsFrom(appVersion, firmwareVersion, authorityId, hasAuthorityId));
+            File.WriteAllBytes(dstPath, fself);
+            return fself.Length;
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Fake-signs every raw ELF module under <paramref name="sourceFolder"/> in place
+    /// (<c>eboot.bin</c>, <c>*.elf</c>, <c>*.prx</c>, <c>*.sprx</c>). Files already SELF are
+    /// skipped. This is the standalone form of the build-time fake-sign step.
+    /// </summary>
+    /// <returns>The number of modules converted; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_fake_sign_folder")]
+    public static int FakeSignFolder(
+        byte* sourceFolder,
+        ulong appVersion,
+        ulong firmwareVersion,
+        ulong authorityId,
+        int hasAuthorityId)
+    {
+        try
+        {
+            return ProsperoPackageBuilder.FakeSignModulesInPlace(
+                Utf8ToString(sourceFolder) ?? "",
+                FselfOptionsFrom(appVersion, firmwareVersion, authorityId, hasAuthorityId));
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>Copies the display name of an application type (LPP_APP_TYPE_*) into a caller buffer.</summary>
+    /// <returns>The number of bytes written, or a negative value (see lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_application_type_name")]
+    public static int ApplicationTypeName(int applicationType, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string name = ProsperoApplicationTypes.DisplayName(ToEnum<ProsperoApplicationType>(applicationType));
+            return WriteUtf8(name, outBuffer, capacity);
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Copies the generated param.json <c>applicationDrmType</c> token (<c>free</c> / <c>standard</c>
+    /// / <c>freemium</c>) for an application type (LPP_APP_TYPE_*) into a caller buffer.
+    /// </summary>
+    /// <returns>The number of bytes written, or a negative value (see lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_application_drm_type")]
+    public static int ApplicationDrmType(int applicationType, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string token = ProsperoApplicationTypes.ApplicationDrmType(ToEnum<ProsperoApplicationType>(applicationType));
+            return WriteUtf8(token, outBuffer, capacity);
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Parses an application-type display name (case-insensitive) into its code (LPP_APP_TYPE_*).
+    /// Unknown or empty input yields <c>LPP_APP_TYPE_NOT_SPECIFIED</c> (0).
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_parse_application_type")]
+    public static int ParseApplicationType(byte* name)
+        => (int)ProsperoApplicationTypes.Parse(Utf8ToString(name));
+
+    private static int MakeFselfCore(byte* elf, int elfLength, FselfOptions? options, byte* outBuffer, int capacity)
     {
         try
         {
@@ -275,7 +557,7 @@ internal static unsafe class NativeExports
                 return -1;
             }
 
-            byte[] result = ProsperoFself.MakeFself(new ReadOnlySpan<byte>(elf, elfLength).ToArray());
+            byte[] result = ProsperoFself.MakeFself(new ReadOnlySpan<byte>(elf, elfLength).ToArray(), options);
             if (outBuffer is null || capacity <= 0)
                 return result.Length;
 
@@ -294,6 +576,14 @@ internal static unsafe class NativeExports
             return -1;
         }
     }
+
+    private static FselfOptions FselfOptionsFrom(ulong appVersion, ulong firmwareVersion, ulong authorityId, int hasAuthorityId)
+        => new FselfOptions
+        {
+            AppVersion = appVersion,
+            FirmwareVersion = firmwareVersion,
+            AuthorityId = hasAuthorityId != 0 ? authorityId : null,
+        };
 
     private static ReadOnlySpan<byte> AsSpan(byte* data, int length)
         => data is null || length <= 0 ? default : new ReadOnlySpan<byte>(data, length);

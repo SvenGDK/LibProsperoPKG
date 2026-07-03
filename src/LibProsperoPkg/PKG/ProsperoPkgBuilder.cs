@@ -888,7 +888,7 @@ public static class ProsperoPkgBuilder
             DrmType = "none",
             ApplicationDrmType = pj.ApplicationDrmType,
             ContentType = ContentTypeString(pkg.Header.content_type),
-            ApplicationType = "free",
+            ApplicationType = pj.ApplicationDrmType,
             MasterVersion = pj.MasterVersion,
             RequiredSystemSoftwareVersion = pj.RequiredSystemSoftwareVersion,
             SdkVersion = pj.SdkVersion,
