@@ -74,8 +74,6 @@ jobs:
           }
           New-Item -ItemType Directory -Force artifacts | Out-Null
           $mine | Copy-Item -Destination artifacts
-          # A lib-prefixed alias so downstream consumers can link with -lprosperopkg.
-          Copy-Item $mine[0].FullName (Join-Path 'artifacts' 'libprosperopkg.dylib') -Force
           Copy-Item (Join-Path $env:NATIVE_DIR 'libprosperopkg.h') artifacts
           Copy-Item $env:LICENSE_FILE artifacts
           Copy-Item $env:NOTICE_FILE artifacts
@@ -103,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           ( cd artifacts && shasum -a 256 \
-              *LibProsperoPkg.dylib libprosperopkg.dylib libprosperopkg.h \
+              *LibProsperoPkg.dylib libprosperopkg.h \
               "$(basename "$LICENSE_FILE")" "$(basename "$NOTICE_FILE")" > SHA256SUMS )
           cat artifacts/SHA256SUMS
 
