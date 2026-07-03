@@ -91,7 +91,16 @@ jobs:
             exit 1
           fi
           echo "Inspecting $lib"
-          syms=$(nm -gU "$lib" | awk '{print $NF}' | sed -e 's/^_//' -e 's/@.*//')
+          syms=$(
+            {
+              dyld_info -exports "$lib" 2>/dev/null || true
+              objdump --macho --exports-trie "$lib" 2>/dev/null || true
+              nm -gU "$lib" 2>/dev/null || true
+            } \
+              | tr -c 'A-Za-z0-9_' '\n' \
+              | sed -n 's/^_\{0,1\}\(lpp_[A-Za-z0-9_]*\)$/\1/p' \
+              | sort -u
+          )
           missing=0
           for s in $(cat "$NATIVE_DIR/exports.txt"); do
             if ! grep -Fxq "$s" <<< "$syms"; then echo "MISSING: $s"; missing=1; fi
