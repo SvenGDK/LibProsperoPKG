@@ -48,7 +48,7 @@ jobs:
           $csproj = $env:PROJECT
           $text = Get-Content -Raw $csproj
           if ($text -notmatch '<PublishAot>') {
-            $inject = "    <PublishAot>true</PublishAot>`n    <NativeLib>Shared</NativeLib>`n  </PropertyGroup>"
+            $inject = "    <PublishAot>true</PublishAot>`n    <NativeLib>Shared</NativeLib>`n    <StripSymbols>false</StripSymbols>`n  </PropertyGroup>"
             $idx = $text.IndexOf('</PropertyGroup>')
             $text = $text.Substring(0, $idx) + $inject + $text.Substring($idx + '</PropertyGroup>'.Length)
             Set-Content -NoNewline -Path $csproj -Value $text
@@ -93,19 +93,26 @@ jobs:
           echo "Inspecting $lib"
           syms=$(
             {
+              nm -gU "$lib" 2>/dev/null || true
               dyld_info -exports "$lib" 2>/dev/null || true
               objdump --macho --exports-trie "$lib" 2>/dev/null || true
-              nm -gU "$lib" 2>/dev/null || true
             } \
               | tr -c 'A-Za-z0-9_' '\n' \
               | sed -n 's/^_\{0,1\}\(lpp_[A-Za-z0-9_]*\)$/\1/p' \
               | sort -u
           )
+          echo "Found $(printf '%s\n' "$syms" | grep -c . ) lpp_ symbols"
           missing=0
           for s in $(cat "$NATIVE_DIR/exports.txt"); do
             if ! grep -Fxq "$s" <<< "$syms"; then echo "MISSING: $s"; missing=1; fi
           done
-          if [ "$missing" -ne 0 ]; then echo "Expected C exports are missing"; exit 1; fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Expected C exports are missing. Symbols found:"
+            printf '%s\n' "$syms"
+            echo "--- nm -gU (head) ---"
+            nm -gU "$lib" 2>&1 | head -n 40 || true
+            exit 1
+          fi
           echo "All expected exports present"
 
       - name: Checksums
