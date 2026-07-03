@@ -10,9 +10,9 @@ namespace LibProsperoPkg.PFS;
 /// A data structure representing everything configurable in a PFS image.
 /// Gets fed to a PfsBuilder.
 /// </summary>
-public class PfsProperties
+public class ProsperoPfsProperties
 {
-    public FSDir root;
+    public ProsperoFsDir root;
     public long FileTime;
     public uint BlockSize;
     public uint MinBlocks = 0;
@@ -23,7 +23,7 @@ public class PfsProperties
 
     /// <summary>
     /// PFS superblock version stamped into the image header
-    /// (<see cref="PfsHeader.VersionPs5"/>, 2).
+    /// (<see cref="ProsperoPfsHeader.VersionPs5"/>, 2).
     /// </summary>
-    public long Version = PfsHeader.VersionPs5;
+    public long Version = ProsperoPfsHeader.VersionPs5;
 }

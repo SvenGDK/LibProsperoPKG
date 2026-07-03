@@ -21,7 +21,7 @@ namespace LibProsperoPkg.PFS;
 /// surface for PFSC encoding (<c>--block-size</c>, <c>--compression-level</c>,
 /// <c>--threshold-gain</c>, <c>--min-compress-size</c>).
 /// </summary>
-public sealed class PfscEncoderOptions
+public sealed class ProsperoPfscEncoderOptions
 {
     /// <summary>Logical PFSC block size. Must be a power of two between 4 KiB and 2 MiB. Default 64 KiB.</summary>
     public int BlockSize { get; set; } = 0x10000;
@@ -55,7 +55,7 @@ public sealed class PfscEncoderOptions
 }
 
 /// <summary>Statistics describing a completed PFSC encode.</summary>
-public sealed class PfscEncodeStats
+public sealed class ProsperoPfscEncodeStats
 {
     /// <summary>Logical (uncompressed) size of the source payload.</summary>
     public long RawSize { get; init; }
@@ -74,9 +74,9 @@ public sealed class PfscEncodeStats
 /// <summary>
 /// Encodes raw data into a PFSC-compressed image. The header layout, offset
 /// table and per-block compress/raw decision follow the PFSC payload layout,
-/// and the output is decodable by <see cref="PFSCReader"/>.
+/// and the output is decodable by <see cref="ProsperoPfscReader"/>.
 /// </summary>
-public static class PfscEncoder
+public static class ProsperoPfscEncoder
 {
     /// <summary>The 4-byte PFSC magic ('P','F','S','C').</summary>
     public const uint Magic = 0x43534650;
@@ -106,7 +106,7 @@ public static class PfscEncoder
     /// When compression yields no benefit (e.g. tiny or incompressible payloads)
     /// the original bytes are returned unchanged and <c>StoredRaw</c> is set.
     /// </summary>
-    public static byte[] Encode(byte[] raw, PfscEncoderOptions? options, out PfscEncodeStats stats)
+    public static byte[] Encode(byte[] raw, ProsperoPfscEncoderOptions? options, out ProsperoPfscEncodeStats stats)
     {
         ArgumentNullException.ThrowIfNull(raw);
         using var input = new MemoryStream(raw, writable: false);
@@ -126,12 +126,12 @@ public static class PfscEncoder
     /// memory footprint flat even for multi-gigabyte images.
     /// </remarks>
     /// <returns>Statistics describing the encode.</returns>
-    public static PfscEncodeStats Encode(Stream input, long length, Stream output, PfscEncoderOptions? options = null, Action<long>? progress = null)
+    public static ProsperoPfscEncodeStats Encode(Stream input, long length, Stream output, ProsperoPfscEncoderOptions? options = null, Action<long>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
         if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
-        options ??= new PfscEncoderOptions();
+        options ??= new ProsperoPfscEncoderOptions();
         options.Validate();
         if (!output.CanSeek)
             throw new ArgumentException("Output stream must be seekable.", nameof(output));
@@ -142,7 +142,7 @@ public static class PfscEncoder
         if (length == 0 || length < options.MinCompressSize)
         {
             CopyExact(input, output, length);
-            return new PfscEncodeStats
+            return new ProsperoPfscEncodeStats
             {
                 RawSize = length,
                 EncodedSize = length,
@@ -200,7 +200,7 @@ public static class PfscEncoder
             output.SetLength(outStart);
             input.Position = 0; // caller-provided substreams start at 0
             CopyExact(input, output, length);
-            return new PfscEncodeStats
+            return new ProsperoPfscEncodeStats
             {
                 RawSize = length,
                 EncodedSize = length,
@@ -216,7 +216,7 @@ public static class PfscEncoder
         output.Position = outStart + encodedSize;
         output.SetLength(outStart + encodedSize);
 
-        return new PfscEncodeStats
+        return new ProsperoPfscEncodeStats
         {
             RawSize = length,
             EncodedSize = encodedSize,

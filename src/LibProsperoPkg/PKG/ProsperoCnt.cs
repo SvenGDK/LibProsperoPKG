@@ -10,27 +10,27 @@ using System.Linq;
 
 namespace LibProsperoPkg.PKG;
 
-public class Pkg
+public class ProsperoCnt
 {
     // 0x0 - 0x5A0
-    public Header Header;
+    public ProsperoCntHeader Header;
     // 0xFE0 - 0xFFF
     public byte[] HeaderDigest;
     // 0x1000 - 0x10FF
     public byte[] HeaderSignature;
     // 0x2000 - 0x27FF
-    public KeysEntry EntryKeys;
+    public ProsperoCntKeysEntry EntryKeys;
     // 0x2800 - 0x28FF
-    public GenericEntry ImageKey;
+    public ProsperoCntGenericEntry ImageKey;
     // 0x2900 - 0x2A7F
-    public GeneralDigestsEntry GeneralDigests;
-    // 0x2A80 - 0x2xxx
-    public MetasEntry Metas;
+    public ProsperoCntGeneralDigestsEntry GeneralDigests;
+    // 0x2A80 - variable
+    public ProsperoCntMetasEntry Metas;
     // variable...
-    public GenericEntry Digests;
-    public NameTableEntry EntryNames;
+    public ProsperoCntGenericEntry Digests;
+    public ProsperoCntNameTableEntry EntryNames;
 
-    public List<Entry> Entries;
+    public List<ProsperoCntEntry> Entries;
 
     // Constants
     const uint PKG_FLAG_FINALIZED = 1u << 31;
@@ -114,10 +114,10 @@ public class Pkg
 
 
 
-public struct Header
+public struct ProsperoCntHeader
 {
     public string CNTMagic;
-    public PKGFlags flags;
+    public ProsperoCntFlags flags;
     public uint unk_0x08;
     public uint unk_0x0C; /* 0xF */
     public uint entry_count;
@@ -130,22 +130,21 @@ public struct Header
     public string content_id; // Length = PKG_CONTENT_ID_SIZE
     public uint drm_type;
     public uint content_type;
-    public ContentFlags content_flags;
+    public ProsperoCntContentFlags content_flags;
     public uint promote_size;
     public uint version_date;
     public uint version_hash;
-    public uint unk_0x88; /* for delta patches only? */
-    public uint unk_0x8C; /* for delta patches only? */
-    public uint unk_0x90; /* for delta patches only? */
-    public uint unk_0x94; /* for delta patches only? */
-    public IROTag iro_tag;
+    public uint unk_0x88;
+    public uint unk_0x8C;
+    public uint unk_0x90;
+    public uint unk_0x94;
+    public ProsperoCntIroTag iro_tag;
     public uint ekc_version; /* drm type version */
     public byte[] sc_entries1_hash;
     public byte[] sc_entries2_hash;
     public byte[] digest_table_hash;
     public byte[] body_digest;
 
-    // TODO: i think these fields are actually members of element of container array
     public uint unk_0x400;
     public uint pfs_image_count;
     public ulong pfs_flags;

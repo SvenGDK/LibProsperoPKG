@@ -13,17 +13,17 @@ using System;
 namespace LibProsperoPkg.PFS.Compression;
 
 /// <summary>
-/// Implements the 13 pre-compression shuffles of <see cref="PfsShufflePattern"/> and their
+/// Implements the 13 pre-compression shuffles of <see cref="ProsperoPfsShufflePattern"/> and their
 /// exact inverses. Both directions are deterministic and allocation-light, and round-trip for
 /// any input length.
 /// </summary>
 /// <remarks>
 /// Whole vectors (8 or 16 bytes) are shuffled; a trailing partial vector (when the input length
 /// is not a multiple of the stride) is passed through unchanged so that
-/// <see cref="Deshuffle(System.ReadOnlySpan{byte}, PfsShufflePattern)"/> exactly reverses
-/// <see cref="Shuffle(System.ReadOnlySpan{byte}, PfsShufflePattern)"/>.
+/// <see cref="Deshuffle(System.ReadOnlySpan{byte}, ProsperoPfsShufflePattern)"/> exactly reverses
+/// <see cref="Shuffle(System.ReadOnlySpan{byte}, ProsperoPfsShufflePattern)"/>.
 /// </remarks>
-public static class PfsShuffle
+public static class ProsperoPfsShuffle
 {
     // Field decompositions for each pattern. Each inner array
     // sums to its stride (8 or 16). None has no fields (identity transform).
@@ -41,32 +41,32 @@ public static class PfsShuffle
     private static readonly int[] Fields2626 = [2, 6, 2, 6];
 
     /// <summary>
-    /// Returns the byte stride (8 or 16, or 0 for <see cref="PfsShufflePattern.None"/>) and the
+    /// Returns the byte stride (8 or 16, or 0 for <see cref="ProsperoPfsShufflePattern.None"/>) and the
     /// field sizes that make up one vector for <paramref name="pattern"/>.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="pattern"/> is not a defined pattern.</exception>
-    public static (int Stride, int[] Fields) Describe(PfsShufflePattern pattern) => pattern switch
+    public static (int Stride, int[] Fields) Describe(ProsperoPfsShufflePattern pattern) => pattern switch
     {
-        PfsShufflePattern.None => (0, []),
-        PfsShufflePattern.Shuffle44 => (8, Fields44),
-        PfsShufflePattern.Shuffle224 => (8, Fields224),
-        PfsShufflePattern.Shuffle116 => (8, Fields116),
-        PfsShufflePattern.Shuffle11111111 => (8, Fields11111111),
-        PfsShufflePattern.Shuffle8224 => (16, Fields8224),
-        PfsShufflePattern.Shuffle116224 => (16, Fields116224),
-        PfsShufflePattern.Shuffle116116 => (16, Fields116116),
-        PfsShufflePattern.Shuffle4444 => (16, Fields4444),
-        PfsShufflePattern.Shuffle88 => (16, Fields88),
-        PfsShufflePattern.Shuffle844 => (16, Fields844),
-        PfsShufflePattern.Shuffle26 => (8, Fields26),
-        PfsShufflePattern.Shuffle2626 => (16, Fields2626),
+        ProsperoPfsShufflePattern.None => (0, []),
+        ProsperoPfsShufflePattern.Shuffle44 => (8, Fields44),
+        ProsperoPfsShufflePattern.Shuffle224 => (8, Fields224),
+        ProsperoPfsShufflePattern.Shuffle116 => (8, Fields116),
+        ProsperoPfsShufflePattern.Shuffle11111111 => (8, Fields11111111),
+        ProsperoPfsShufflePattern.Shuffle8224 => (16, Fields8224),
+        ProsperoPfsShufflePattern.Shuffle116224 => (16, Fields116224),
+        ProsperoPfsShufflePattern.Shuffle116116 => (16, Fields116116),
+        ProsperoPfsShufflePattern.Shuffle4444 => (16, Fields4444),
+        ProsperoPfsShufflePattern.Shuffle88 => (16, Fields88),
+        ProsperoPfsShufflePattern.Shuffle844 => (16, Fields844),
+        ProsperoPfsShufflePattern.Shuffle26 => (8, Fields26),
+        ProsperoPfsShufflePattern.Shuffle2626 => (16, Fields2626),
         _ => throw new ArgumentOutOfRangeException(nameof(pattern), pattern, "Undefined PFS shuffle pattern."),
     };
 
     /// <summary>Applies the forward shuffle for <paramref name="pattern"/> to <paramref name="input"/>.</summary>
     /// <returns>A new buffer the same length as <paramref name="input"/> with the bytes shuffled.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="pattern"/> is not a defined pattern.</exception>
-    public static byte[] Shuffle(ReadOnlySpan<byte> input, PfsShufflePattern pattern)
+    public static byte[] Shuffle(ReadOnlySpan<byte> input, ProsperoPfsShufflePattern pattern)
     {
         (int stride, int[] fields) = Describe(pattern);
         var output = new byte[input.Length];
@@ -98,7 +98,7 @@ public static class PfsShuffle
     /// <summary>Reverses <see cref="Shuffle"/> for <paramref name="pattern"/>.</summary>
     /// <returns>A new buffer the same length as <paramref name="input"/> with the bytes restored.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="pattern"/> is not a defined pattern.</exception>
-    public static byte[] Deshuffle(ReadOnlySpan<byte> input, PfsShufflePattern pattern)
+    public static byte[] Deshuffle(ReadOnlySpan<byte> input, ProsperoPfsShufflePattern pattern)
     {
         (int stride, int[] fields) = Describe(pattern);
         var output = new byte[input.Length];

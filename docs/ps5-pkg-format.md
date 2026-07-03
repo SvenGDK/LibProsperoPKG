@@ -63,7 +63,7 @@ entry:
 | Field | Notes |
 |---|---|
 | Id | A well-known entry id (see below) |
-| Name-table offset | Offset of the entry's name within the `EntryNames` (`0x0200`) table |
+| Name-table offset | Offset of the entry's name within the entry name table (`0x0200`) |
 | Flags | Includes the encrypted-entry flag (`0x80000000` in `Flags1`) |
 | Data offset / size | Location and length of the entry payload |
 

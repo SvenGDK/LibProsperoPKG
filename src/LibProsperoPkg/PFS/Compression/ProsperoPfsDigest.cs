@@ -26,7 +26,7 @@ namespace LibProsperoPkg.PFS.Compression;
 /// support SHA3-256; query <see cref="IsSupported"/> before use. (.NET 10 on a supported OS
 /// satisfies this; it maps to the platform SHA-3 implementation.)
 /// </remarks>
-public static class PfsDigest
+public static class ProsperoPfsDigest
 {
     /// <summary>The length, in bytes, of a SHA3-256 digest (256 bits).</summary>
     public const int DigestLength = 32;

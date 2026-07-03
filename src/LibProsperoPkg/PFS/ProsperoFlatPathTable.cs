@@ -15,9 +15,9 @@ namespace LibProsperoPkg.PFS;
 /// Represents the flat_path_table file, which is a mapping of filename hash to inode number
 /// that the package runtime can use to speed up lookups.
 /// </summary>
-public class FlatPathTable
+public class ProsperoFlatPathTable
 {
-    public static bool HasCollision(List<FSNode> nodes)
+    public static bool HasCollision(List<ProsperoFsNode> nodes)
     {
         var hashSet = new HashSet<uint>();
         foreach (var n in nodes)
@@ -29,10 +29,10 @@ public class FlatPathTable
         }
         return false;
     }
-    public static Tuple<FlatPathTable, CollisionResolver> Create(List<FSNode> nodes)
+    public static Tuple<ProsperoFlatPathTable, ProsperoCollisionResolver> Create(List<ProsperoFsNode> nodes)
     {
         var hashMap = new SortedDictionary<uint, uint>();
-        var nodeMap = new Dictionary<uint, List<FSNode>>();
+        var nodeMap = new Dictionary<uint, List<ProsperoFsNode>>();
         bool collision = false;
         foreach (var n in nodes)
         {
@@ -45,29 +45,29 @@ public class FlatPathTable
             }
             else
             {
-                hashMap[hash] = n.ino.Number | (n is FSDir ? 0x20000000u : 0u);
-                nodeMap[hash] = new List<FSNode>();
+                hashMap[hash] = n.ino.Number | (n is ProsperoFsDir ? 0x20000000u : 0u);
+                nodeMap[hash] = new List<ProsperoFsNode>();
                 nodeMap[hash].Add(n);
             }
         }
         if (!collision)
         {
-            return Tuple.Create(new FlatPathTable(hashMap), (CollisionResolver)null);
+            return Tuple.Create(new ProsperoFlatPathTable(hashMap), (ProsperoCollisionResolver)null);
         }
 
         uint offset = 0;
-        var colEnts = new List<List<PfsDirent>>();
+        var colEnts = new List<List<ProsperoPfsDirent>>();
         foreach (var kv in hashMap.Where(kv => kv.Value == 0x80000000).ToList())
         {
             hashMap[kv.Key] = 0x80000000 | offset;
-            var entList = new List<PfsDirent>();
+            var entList = new List<ProsperoPfsDirent>();
             colEnts.Add(entList);
             foreach (var node in nodeMap[kv.Key])
             {
-                var d = new PfsDirent()
+                var d = new ProsperoPfsDirent()
                 {
                     InodeNumber = node.ino.Number,
-                    Type = node is FSDir ? DirentType.Directory : DirentType.File,
+                    Type = node is ProsperoFsDir ? ProsperoDirentType.Directory : ProsperoDirentType.File,
                     Name = node.FullPath(),
                 };
                 entList.Add(d);
@@ -75,7 +75,7 @@ public class FlatPathTable
             }
             offset += 0x18;
         }
-        return Tuple.Create(new FlatPathTable(hashMap), new CollisionResolver(colEnts));
+        return Tuple.Create(new ProsperoFlatPathTable(hashMap), new ProsperoCollisionResolver(colEnts));
     }
 
     private SortedDictionary<uint, uint> hashMap;
@@ -86,7 +86,7 @@ public class FlatPathTable
     /// Construct a flat_path_table out of the given filesystem nodes.
     /// </summary>
     /// <param name="hashMap"></param>
-    public FlatPathTable(SortedDictionary<uint, uint> hashMap)
+    public ProsperoFlatPathTable(SortedDictionary<uint, uint> hashMap)
     {
         this.hashMap = hashMap;
     }
@@ -118,11 +118,11 @@ public class FlatPathTable
     }
 }
 
-public class CollisionResolver
+public class ProsperoCollisionResolver
 {
     public int Size { get; }
 
-    public CollisionResolver(List<List<PfsDirent>> ents)
+    public ProsperoCollisionResolver(List<List<ProsperoPfsDirent>> ents)
     {
         Entries = ents;
         var size = 0;
@@ -137,7 +137,7 @@ public class CollisionResolver
         Size = size;
     }
 
-    private List<List<PfsDirent>> Entries;
+    private List<List<ProsperoPfsDirent>> Entries;
     public void WriteToStream(Stream s)
     {
         foreach (var d in Entries)

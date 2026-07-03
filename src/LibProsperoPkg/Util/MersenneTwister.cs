@@ -89,6 +89,4 @@ public class MersenneTwister
         y ^= (y >> 18) & Mask(14);
         return y;
     }
-
-    public uint Int31() => Int32() & Mask(31);
 }

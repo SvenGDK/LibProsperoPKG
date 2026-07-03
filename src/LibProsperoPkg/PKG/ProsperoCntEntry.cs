@@ -15,13 +15,13 @@ namespace LibProsperoPkg.PKG;
 /// <summary>
 /// Represents the data of an entry
 /// </summary>
-public abstract class Entry
+public abstract class ProsperoCntEntry
 {
-    public abstract EntryId Id { get; }
+    public abstract ProsperoCntEntryId Id { get; }
     public abstract uint Length { get; }
     public abstract string Name { get; }
     public abstract void Write(Stream s);
-    public MetaEntry meta;
+    public ProsperoCntMetaEntry meta;
 
     /// <summary>
     /// Writes the entry in an encrypted form to the given stream.
@@ -41,7 +41,7 @@ public abstract class Entry
         s.Write(tmp, 0, tmp.Length);
     }
 
-    private static byte[] Decrypt(byte[] entryBytes, byte[] keySeed, MetaEntry meta)
+    private static byte[] Decrypt(byte[] entryBytes, byte[] keySeed, ProsperoCntMetaEntry meta)
     {
         var iv_key = Crypto.Sha256(
                meta.GetBytes()
@@ -55,7 +55,7 @@ public abstract class Entry
     /// <summary>
     /// Decrypts the given bytes using the entry encryption.
     /// </summary>
-    public static byte[] Decrypt(byte[] entryBytes, string contentId, string passcode, MetaEntry meta)
+    public static byte[] Decrypt(byte[] entryBytes, string contentId, string passcode, ProsperoCntMetaEntry meta)
     {
         return Decrypt(entryBytes, Crypto.ComputeKeys(contentId, passcode, meta.KeyIndex), meta);
     }
@@ -64,7 +64,7 @@ public abstract class Entry
     /// Decrypts the given entry using the entry encryption.
     /// Throws an exception if it can't be decrypted.
     /// </summary>
-    public static byte[] Decrypt(byte[] entryBytes, Pkg pkg, MetaEntry meta)
+    public static byte[] Decrypt(byte[] entryBytes, ProsperoCnt pkg, ProsperoCntMetaEntry meta)
     {
         if (meta.KeyIndex != 3)
         {
@@ -77,9 +77,9 @@ public abstract class Entry
 /// <summary>
 /// The representation of an entry in the PKG entry table.
 /// </summary>
-public class MetaEntry
+public class ProsperoCntMetaEntry
 {
-    public EntryId id;
+    public ProsperoCntEntryId id;
     public uint NameTableOffset;
     public uint Flags1;
     public uint Flags2;
@@ -97,10 +97,10 @@ public class MetaEntry
         s.WriteUInt32BE(DataSize);
         s.Position += 8; // pad
     }
-    public static MetaEntry Read(Stream s)
+    public static ProsperoCntMetaEntry Read(Stream s)
     {
-        var ret = new MetaEntry();
-        ret.id = (EntryId)s.ReadUInt32BE();
+        var ret = new ProsperoCntMetaEntry();
+        ret.id = (ProsperoCntEntryId)s.ReadUInt32BE();
         ret.NameTableOffset = s.ReadUInt32BE();
         ret.Flags1 = s.ReadUInt32BE();
         ret.Flags2 = s.ReadUInt32BE();
@@ -126,16 +126,16 @@ public class MetaEntry
 /// <summary>
 /// Generic entry, for when all you need is a bunch o' bytes
 /// </summary>
-public class GenericEntry : Entry
+public class ProsperoCntGenericEntry : ProsperoCntEntry
 {
-    public GenericEntry(EntryId id, string name = null)
+    public ProsperoCntGenericEntry(ProsperoCntEntryId id, string name = null)
     {
         Id = id;
         Name = name;
     }
 
     public byte[] FileData;
-    public override EntryId Id { get; }
+    public override ProsperoCntEntryId Id { get; }
     public override string Name { get; }
     public override uint Length => (uint)(FileData?.Length ?? 0);
     public override void Write(Stream s)
@@ -145,42 +145,9 @@ public class GenericEntry : Entry
 }
 
 /// <summary>
-/// FileEntry, which lets you use a thunk to write the entry's data when it's needed.
-/// </summary>
-public class FileEntry : Entry
-{
-    /// <summary>
-    /// FileEntry constructor abstraction for any file
-    /// </summary>
-    /// <param name="id">ID of the file entry</param>
-    /// <param name="writer">Thunk to write the file to a stream</param>
-    /// <param name="length">Length of the file</param>
-    public FileEntry(EntryId id, Action<Stream> writer, uint length)
-    {
-        Id = id;
-        Name = EntryNames.IdToName[id];
-        Length = length;
-        Writer = writer;
-    }
-    /// <summary>
-    /// FileEntry constructor for a file on the hard drive
-    /// </summary>
-    /// <param name="id">Entry ID</param>
-    /// <param name="path">Path to the file</param>
-    public FileEntry(EntryId id, string path)
-      : this(id, s => { using (var f = File.OpenRead(path)) f.CopyTo(s); }, (uint)new FileInfo(path).Length)
-    { }
-    private Action<Stream> Writer;
-    public override EntryId Id { get; }
-    public override string Name { get; }
-    public override uint Length { get; }
-    public override void Write(Stream s) => Writer(s);
-}
-
-/// <summary>
 /// A single RSA-encrypted key and its digest.
 /// </summary>
-public class PkgEntryKey
+public class ProsperoCntEntryKey
 {
     public byte[] digest = new byte[32];
     public byte[] key = new byte[256];
@@ -189,21 +156,21 @@ public class PkgEntryKey
 /// <summary>
 /// The ENTRY_KEYS entry.
 /// </summary>
-public class KeysEntry : Entry
+public class ProsperoCntKeysEntry : ProsperoCntEntry
 {
-    public KeysEntry(byte[] digest, PkgEntryKey[] keys)
+    public ProsperoCntKeysEntry(byte[] digest, ProsperoCntEntryKey[] keys)
     {
         seedDigest = digest;
         Keys = keys;
     }
-    public KeysEntry(string contentId, string passcode)
+    public ProsperoCntKeysEntry(string contentId, string passcode)
     {
-        Keys = new PkgEntryKey[7];
+        Keys = new ProsperoCntEntryKey[7];
         seedDigest = Crypto.Sha256(Encoding.ASCII.GetBytes(contentId.PadRight(48, '\0')));
         for (uint i = 0; i < 7; i++)
         {
             var passcodeKey = Crypto.ComputeKeys(contentId, passcode, i);
-            Keys[i] = new PkgEntryKey
+            Keys[i] = new ProsperoCntEntryKey
             {
                 digest = Crypto.Sha256(passcodeKey).Xor(passcodeKey),
                 key = Crypto.RSA2048EncryptKey(Util.CryptoKeys.PkgPublicKeys[i], passcodeKey)
@@ -212,8 +179,8 @@ public class KeysEntry : Entry
         Keys[0].key = Crypto.RSA2048EncryptKey(Util.CryptoKeys.PkgPublicKeys[0], Encoding.ASCII.GetBytes(passcode));
     }
     public byte[] seedDigest;
-    public PkgEntryKey[] Keys;
-    public override EntryId Id => EntryId.ENTRY_KEYS;
+    public ProsperoCntEntryKey[] Keys;
+    public override ProsperoCntEntryId Id => ProsperoCntEntryId.ENTRY_KEYS;
     public override string Name => null;
     public override uint Length => 2048;
     public override void Write(Stream s)
@@ -228,41 +195,41 @@ public class KeysEntry : Entry
             s.Write(key.key, 0, 256);
         }
     }
-    public static KeysEntry Read(MetaEntry e, Stream pkg)
+    public static ProsperoCntKeysEntry Read(ProsperoCntMetaEntry e, Stream pkg)
     {
         pkg.Position = e.DataOffset;
         var seedDigest = pkg.ReadBytes(32);
         var digests = new byte[7][];
-        var keys = new PkgEntryKey[7];
+        var keys = new ProsperoCntEntryKey[7];
         for (var x = 0; x < 7; x++)
         {
             digests[x] = pkg.ReadBytes(32);
         }
         for (var x = 0; x < 7; x++)
         {
-            keys[x] = new PkgEntryKey
+            keys[x] = new ProsperoCntEntryKey
             {
                 digest = digests[x],
                 key = pkg.ReadBytes(256)
             };
         }
-        return new KeysEntry(seedDigest, keys) { meta = e };
+        return new ProsperoCntKeysEntry(seedDigest, keys) { meta = e };
     }
 }
 
 /// <summary>
 /// The table of names for entries that have filenames.
 /// </summary>
-public class NameTableEntry : Entry
+public class ProsperoCntNameTableEntry : ProsperoCntEntry
 {
     /// <summary>
     /// Default constructor, intended for a new PKG
     /// </summary>
-    public NameTableEntry() { }
+    public ProsperoCntNameTableEntry() { }
     /// <summary>
     /// Constructor intended to be used when reading from a PKG
     /// </summary>
-    public NameTableEntry(List<string> names)
+    public ProsperoCntNameTableEntry(List<string> names)
     {
         int len = 0;
         Names = new Dictionary<string, int>();
@@ -302,7 +269,7 @@ public class NameTableEntry : Entry
         return null;
     }
 
-    public override EntryId Id => EntryId.ENTRY_NAMES;
+    public override ProsperoCntEntryId Id => ProsperoCntEntryId.ENTRY_NAMES;
     public override string Name => null;
     public override uint Length => (uint)length;
     public override void Write(Stream s)
@@ -315,7 +282,7 @@ public class NameTableEntry : Entry
         }
     }
 
-    public static NameTableEntry Read(MetaEntry e, Stream pkg)
+    public static ProsperoCntNameTableEntry Read(ProsperoCntMetaEntry e, Stream pkg)
     {
         var sz = 0;
         var names = new List<string>();
@@ -326,12 +293,12 @@ public class NameTableEntry : Entry
             names.Add(name);
             sz += name.Length + 1;
         }
-        return new NameTableEntry(names) { meta = e };
+        return new ProsperoCntNameTableEntry(names) { meta = e };
     }
 }
 
 [Flags]
-public enum GeneralDigest : int
+public enum ProsperoCntGeneralDigest : int
 {
     DigestMetaData = 1 << 0, // Never set.
     ContentDigest = 1 << 1,
@@ -352,36 +319,36 @@ public enum GeneralDigest : int
 /// <summary>
 /// The GENERAL_DIGESTS entry.
 /// </summary>
-public class GeneralDigestsEntry : Entry
+public class ProsperoCntGeneralDigestsEntry : ProsperoCntEntry
 {
     public ushort unk1 = 0xD256;
     public ushort type = 0x100;
-    public GeneralDigest set_digests = 0;
-    public Dictionary<GeneralDigest, byte[]> Digests = new Dictionary<GeneralDigest, byte[]>
+    public ProsperoCntGeneralDigest set_digests = 0;
+    public Dictionary<ProsperoCntGeneralDigest, byte[]> Digests = new Dictionary<ProsperoCntGeneralDigest, byte[]>
 {
-  { GeneralDigest.ContentDigest, new byte[32] },
-  { GeneralDigest.GameDigest, new byte[32] },
-  { GeneralDigest.HeaderDigest, new byte[32] },
-  { GeneralDigest.SystemDigest, new byte[32] },
-  { GeneralDigest.MajorParamDigest, new byte[32] },
-  { GeneralDigest.ParamDigest, new byte[32] },
-  { GeneralDigest.PlaygoDigest, new byte[32] },
-  { GeneralDigest.TrophyDigest, new byte[32] },
-  { GeneralDigest.ManualDigest, new byte[32] },
-  { GeneralDigest.KeymapDigest, new byte[32] },
-  { GeneralDigest.OriginDigest, new byte[32] },
-  { GeneralDigest.TargetDigest, new byte[32] },
-  { GeneralDigest.OriginGameDigest, new byte[32] },
-  { GeneralDigest.TargetGameDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.ContentDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.GameDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.HeaderDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.SystemDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.MajorParamDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.ParamDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.PlaygoDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.TrophyDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.ManualDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.KeymapDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.OriginDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.TargetDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.OriginGameDigest, new byte[32] },
+  { ProsperoCntGeneralDigest.TargetGameDigest, new byte[32] },
 };
 
-    public void Set(GeneralDigest flag, byte[] value)
+    public void Set(ProsperoCntGeneralDigest flag, byte[] value)
     {
         Buffer.BlockCopy(value, 0, Digests[flag], 0, 32);
         set_digests |= flag;
     }
 
-    public override EntryId Id => EntryId.GENERAL_DIGESTS;
+    public override ProsperoCntEntryId Id => ProsperoCntEntryId.GENERAL_DIGESTS;
     public override uint Length =>
       type == 0x100 ? 0x180u
       : type == 0x101 ? 0x1C0u
@@ -397,27 +364,27 @@ public class GeneralDigestsEntry : Entry
 
         // Emit exactly (Length - 0x20)/0x20 digest slots in enum (bit) order: 0x100 -> 11 slots,
         // 0x101 -> 13, 0x102 -> all 14 (so the Target slot at +0x180 is written for the full table).
-        GeneralDigest[] order =
+        ProsperoCntGeneralDigest[] order =
         [
-            GeneralDigest.ContentDigest, GeneralDigest.GameDigest, GeneralDigest.HeaderDigest,
-            GeneralDigest.SystemDigest, GeneralDigest.MajorParamDigest, GeneralDigest.ParamDigest,
-            GeneralDigest.PlaygoDigest, GeneralDigest.TrophyDigest, GeneralDigest.ManualDigest,
-            GeneralDigest.KeymapDigest, GeneralDigest.OriginDigest, GeneralDigest.TargetDigest,
-            GeneralDigest.OriginGameDigest, GeneralDigest.TargetGameDigest,
+            ProsperoCntGeneralDigest.ContentDigest, ProsperoCntGeneralDigest.GameDigest, ProsperoCntGeneralDigest.HeaderDigest,
+            ProsperoCntGeneralDigest.SystemDigest, ProsperoCntGeneralDigest.MajorParamDigest, ProsperoCntGeneralDigest.ParamDigest,
+            ProsperoCntGeneralDigest.PlaygoDigest, ProsperoCntGeneralDigest.TrophyDigest, ProsperoCntGeneralDigest.ManualDigest,
+            ProsperoCntGeneralDigest.KeymapDigest, ProsperoCntGeneralDigest.OriginDigest, ProsperoCntGeneralDigest.TargetDigest,
+            ProsperoCntGeneralDigest.OriginGameDigest, ProsperoCntGeneralDigest.TargetGameDigest,
         ];
         int slotCount = (int)((Length - 0x20u) / 0x20u);
         for (int i = 0; i < slotCount && i < order.Length; i++)
             s.Write(Digests[order[i]], 0, 32);
     }
 
-    public static GeneralDigestsEntry Read(Stream s)
+    public static ProsperoCntGeneralDigestsEntry Read(Stream s)
     {
-        var ret = new GeneralDigestsEntry();
+        var ret = new ProsperoCntGeneralDigestsEntry();
         ret.unk1 = s.ReadUInt16BE();
         ret.type = s.ReadUInt16BE();
         s.Position += 24;
-        ret.set_digests = (GeneralDigest)s.ReadUInt32BE();
-        for (var d = GeneralDigest.ContentDigest; (int)d < 1 << 15; d = (GeneralDigest)((int)d << 1))
+        ret.set_digests = (ProsperoCntGeneralDigest)s.ReadUInt32BE();
+        for (var d = ProsperoCntGeneralDigest.ContentDigest; (int)d < 1 << 15; d = (ProsperoCntGeneralDigest)((int)d << 1))
         {
             s.ReadExactly(ret.Digests[d], 0, 32);
         }
@@ -428,10 +395,10 @@ public class GeneralDigestsEntry : Entry
 /// <summary>
 /// The table of meta entries that points to the rest of the entries.
 /// </summary>
-public class MetasEntry : Entry
+public class ProsperoCntMetasEntry : ProsperoCntEntry
 {
-    public List<MetaEntry> Metas = new List<MetaEntry>();
-    public override EntryId Id => EntryId.METAS;
+    public List<ProsperoCntMetaEntry> Metas = new List<ProsperoCntMetaEntry>();
+    public override ProsperoCntEntryId Id => ProsperoCntEntryId.METAS;
     public override uint Length => (uint)Metas.Count * 32;
     public override string Name => null;
     public override void Write(Stream s)

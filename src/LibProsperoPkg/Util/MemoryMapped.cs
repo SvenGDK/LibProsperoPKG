@@ -4,7 +4,6 @@
 // Shared utility primitives: crypto, binary IO and stream helpers.
 #nullable disable
 using System;
-using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 
@@ -212,58 +211,4 @@ public class StreamReader : IMemoryReader
         stream.Position = pos + startOffset;
         stream.ReadExactly(buf, offset, count);
     }
-}
-public class StreamWrapper : Stream
-{
-    private IMemoryReader reader;
-    public StreamWrapper(IMemoryReader r, long size)
-    {
-        reader = r;
-        Length = size;
-    }
-    private long position = 0;
-    public override bool CanRead => true;
-
-    public override bool CanSeek => true;
-
-    public override bool CanWrite => false;
-
-    public override long Length { get; }
-
-    public override long Position { get => position; set => position = value; }
-
-    public override void Flush()
-    {
-        // Read-only stream: nothing to flush.
-    }
-
-    public override int Read(byte[] buffer, int offset, int count)
-    {
-        reader.Read(position, buffer, offset, count);
-        position += count;
-        return count;
-    }
-
-    public override long Seek(long offset, SeekOrigin origin)
-    {
-        switch (origin)
-        {
-            case SeekOrigin.Begin:
-                position = offset;
-                break;
-            case SeekOrigin.Current:
-                position += offset;
-                break;
-            case SeekOrigin.End:
-                position = Length + offset;
-                break;
-        }
-        return position;
-    }
-
-    public override void SetLength(long value)
-        => throw new NotSupportedException("StreamWrapper is read-only.");
-
-    public override void Write(byte[] buffer, int offset, int count)
-        => throw new NotSupportedException("StreamWrapper is read-only.");
 }

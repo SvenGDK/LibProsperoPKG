@@ -59,7 +59,7 @@ public sealed class ProsperoPfsImageNode
 /// <summary>
 /// A self-consistent snapshot of a whole built PFS image (outer or nested), used to emit the
 /// <c>pfsimage.xml</c> sections that describe this image's layout. Produced by
-/// <see cref="PfsBuilder.CaptureImageTree"/> after the image has been written.
+/// <see cref="ProsperoPfsBuilder.CaptureImageTree"/> after the image has been written.
 /// </summary>
 public sealed class ProsperoPfsImageTreeInfo
 {
@@ -93,7 +93,7 @@ public sealed class ProsperoPfsImageTreeInfo
     /// <summary>
     /// Superblock integrity value: the 32-byte HMAC-SHA256 self-signature of this image's own
     /// superblock (final signature block 0 @ 0x380), captured during signing. Populated only for a
-    /// signed image with <see cref="PfsBuilder.CaptureSuperblockIcv"/> set; <see langword="null"/>
+    /// signed image with <see cref="ProsperoPfsBuilder.CaptureSuperblockIcv"/> set; <see langword="null"/>
     /// otherwise.
     /// </summary>
     public byte[]? SuperblockIcv { get; init; }

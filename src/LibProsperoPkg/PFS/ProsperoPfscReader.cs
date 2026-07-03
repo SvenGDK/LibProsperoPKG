@@ -16,7 +16,7 @@ namespace LibProsperoPkg.PFS;
 /// This wraps a Memory mapped file view of a PFSC file so that you can access it
 /// as though it were uncompressed.
 /// </summary>
-public class PFSCReader : IMemoryReader
+public class ProsperoPfscReader : IMemoryReader
 {
     public const int Magic = 0x43534650;
     private IMemoryAccessor _accessor;
@@ -28,7 +28,7 @@ public class PFSCReader : IMemoryReader
     /// </summary>
     /// <param name="va">An IMemoryAccessor containing the PFSC file</param>
     /// <exception cref="ArgumentException">Thrown when the accessor is not a view of a PFSC file.</exception>
-    public PFSCReader(IMemoryAccessor va)
+    public ProsperoPfscReader(IMemoryAccessor va)
     {
         _accessor = va;
         _accessor.Read(0, out hdr);
@@ -51,10 +51,10 @@ public class PFSCReader : IMemoryReader
     /// </summary>
     /// <param name="va">A ViewAccessor containing the PFSC file</param>
     /// <exception cref="ArgumentException">Thrown when the accessor is not a view of a PFSC file.</exception>
-    public PFSCReader(MemoryMappedViewAccessor va) : this(new MemoryMappedViewAccessor_(va))
+    public ProsperoPfscReader(MemoryMappedViewAccessor va) : this(new MemoryMappedViewAccessor_(va))
     { }
 
-    public PFSCReader(IMemoryReader r) : this(new MemoryAccessor(r))
+    public ProsperoPfscReader(IMemoryReader r) : this(new MemoryAccessor(r))
     { }
 
     public int SectorSize => hdr.BlockSz;

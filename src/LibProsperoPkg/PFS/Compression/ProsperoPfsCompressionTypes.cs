@@ -12,7 +12,7 @@ namespace LibProsperoPkg.PFS.Compression;
 /// Compression algorithm recorded in the PFS compressed-file header.
 /// Only <see cref="Kraken"/> is supported for compressed-file creation.
 /// </summary>
-public enum CompressionAlgorithm
+public enum ProsperoCompressionAlgorithm
 {
     /// <summary>Fast Zlib. <b>Not</b> supported for PFS compressed-file creation.</summary>
     QuickZ = 0,
@@ -31,7 +31,7 @@ public enum CompressionAlgorithm
 /// This is the version of the <i>compression container</i>, not the PFS filesystem superblock
 /// version. Only <see cref="Version2"/> and <see cref="Version3"/> are valid for PS5.
 /// </remarks>
-public enum PfsCompressionFormat
+public enum ProsperoPfsCompressionFormat
 {
     /// <summary>PFSv0. Deprecated.</summary>
     Version0 = 0,
@@ -55,7 +55,7 @@ public enum PfsCompressionFormat
 /// A shuffle groups bytes at given positions within fixed 8-byte or 16-byte vectors together
 /// (a structure-of-arrays de-interleave) so that similar bytes become adjacent and compress better.
 /// </summary>
-public enum PfsShufflePattern
+public enum ProsperoPfsShufflePattern
 {
     /// <summary>An invalid shuffle pattern.</summary>
     Invalid = -1,
@@ -103,7 +103,7 @@ public enum PfsShufflePattern
 /// <summary>
 /// Constants for PFS Kraken compression.
 /// </summary>
-public static class PfsCompressionConstants
+public static class ProsperoPfsCompressionConstants
 {
     /// <summary>Number of sliding-window bits used for Kraken (the only valid value).</summary>
     public const uint KrakenWindowBits = 18;

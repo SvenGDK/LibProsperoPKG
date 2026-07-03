@@ -21,7 +21,7 @@ using System.IO;
 namespace LibProsperoPkg.PFS.Compression;
 
 /// <summary>
-/// One block of a parsed <see cref="CompressedPfsFile"/>.
+/// One block of a parsed <see cref="ProsperoCompressedPfsFile"/>.
 /// </summary>
 public readonly struct PfsBlock
 {
@@ -42,7 +42,7 @@ public readonly struct PfsBlock
 
     /// <summary>
     /// The block's stored SHA3-256 digest (32 bytes), taken over the <i>uncompressed</i> block bytes.
-    /// Verify a decoded block with <see cref="PfsDigest.VerifyBlockDigest"/>.
+    /// Verify a decoded block with <see cref="ProsperoPfsDigest.VerifyBlockDigest"/>.
     /// </summary>
     public ReadOnlyMemory<byte> Hash { get; init; }
 
@@ -96,24 +96,24 @@ public readonly struct PfsBlock
 
     /// <summary>
     /// The pre-compression shuffle applied to this block. Containers produced without region hints
-    /// (all known default-output containers) always use <see cref="PfsShufflePattern.None"/>.
+    /// (all known default-output containers) always use <see cref="ProsperoPfsShufflePattern.None"/>.
     /// </summary>
     /// <remarks>
-    /// The per-block storage location of a non-<see cref="PfsShufflePattern.None"/> pattern has not
+    /// The per-block storage location of a non-<see cref="ProsperoPfsShufflePattern.None"/> pattern has not
     /// been validated against reference output, so this reader
-    /// reports <see cref="PfsShufflePattern.None"/>. Do not rely on it to detect shuffled blocks.
+    /// reports <see cref="ProsperoPfsShufflePattern.None"/>. Do not rely on it to detect shuffled blocks.
     /// </remarks>
-    public PfsShufflePattern ShufflePattern => PfsShufflePattern.None;
+    public ProsperoPfsShufflePattern ShufflePattern => ProsperoPfsShufflePattern.None;
 }
 
 /// <summary>
 /// A parsed PS5 PFSv2/PFSv3 compression container ("PFSC"). Provides the header fields,
 /// the file-level SHA3-256 digest, the per-block table and full decompression of containers
-/// produced by <see cref="CompressedPfsFileWriter"/> as well as reference containers: stored
+/// produced by <see cref="ProsperoCompressedPfsFileWriter"/> as well as reference containers: stored
 /// blocks plus this library's Kraken codec, which decodes the entropy-coded
 /// (Huffman) arrays and the post-seed excess framing used by reference blocks.
 /// </summary>
-public sealed class CompressedPfsFile
+public sealed class ProsperoCompressedPfsFile
 {
     /// <summary>The 4-byte container magic, 'P','F','S','C' (little-endian <c>0x43534650</c>).</summary>
     public const uint Magic = 0x43534650;
@@ -143,13 +143,13 @@ public sealed class CompressedPfsFile
 
     private readonly ReadOnlyMemory<byte> _buffer;
 
-    private CompressedPfsFile(ReadOnlyMemory<byte> buffer) => _buffer = buffer;
+    private ProsperoCompressedPfsFile(ReadOnlyMemory<byte> buffer) => _buffer = buffer;
 
-    /// <summary>The container format version (<see cref="PfsCompressionFormat.Version2"/> or <see cref="PfsCompressionFormat.Version3"/>).</summary>
-    public PfsCompressionFormat Version { get; private init; }
+    /// <summary>The container format version (<see cref="ProsperoPfsCompressionFormat.Version2"/> or <see cref="ProsperoPfsCompressionFormat.Version3"/>).</summary>
+    public ProsperoPfsCompressionFormat Version { get; private init; }
 
-    /// <summary>The compression algorithm recorded in the header (always <see cref="CompressionAlgorithm.Kraken"/> for PS5).</summary>
-    public CompressionAlgorithm Algorithm { get; private init; }
+    /// <summary>The compression algorithm recorded in the header (always <see cref="ProsperoCompressionAlgorithm.Kraken"/> for PS5).</summary>
+    public ProsperoCompressionAlgorithm Algorithm { get; private init; }
 
     /// <summary>
     /// The Kraken compression level recorded in the header (encode-parameter byte <c>0x11</c>).
@@ -197,8 +197,8 @@ public sealed class CompressedPfsFile
     public bool VerifyFileDigest()
     {
         ReadOnlySpan<byte> span = _buffer.Span;
-        return PfsDigest.VerifyFileDigest(
-            span.Slice(OffBlockSize, PfsDigest.FileDigestHeaderParamsLength),
+        return ProsperoPfsDigest.VerifyFileDigest(
+            span.Slice(OffBlockSize, ProsperoPfsDigest.FileDigestHeaderParamsLength),
             span.Slice(_shuffleRange.Offset, _shuffleRange.Size),
             span.Slice(_boundaryRange.Offset, _boundaryRange.Size),
             span.Slice(_blockHashRange.Offset, _blockHashRange.Size),
@@ -255,7 +255,7 @@ public sealed class CompressedPfsFile
     /// <summary>Parses a PS5 PFSv2/PFSv3 compression container from <paramref name="buffer"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="buffer"/> is null.</exception>
     /// <exception cref="InvalidDataException">The buffer is not a valid PS5 PFS compression container.</exception>
-    public static CompressedPfsFile Parse(byte[] buffer)
+    public static ProsperoCompressedPfsFile Parse(byte[] buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);
         return Parse(buffer.AsMemory());
@@ -263,7 +263,7 @@ public sealed class CompressedPfsFile
 
     /// <summary>Parses a PS5 PFSv2/PFSv3 compression container from <paramref name="buffer"/>.</summary>
     /// <exception cref="InvalidDataException">The buffer is not a valid PS5 PFS compression container.</exception>
-    public static CompressedPfsFile Parse(ReadOnlyMemory<byte> buffer)
+    public static ProsperoCompressedPfsFile Parse(ReadOnlyMemory<byte> buffer)
     {
         ReadOnlySpan<byte> span = buffer.Span;
         if (span.Length < MinHeaderSize)
@@ -295,16 +295,16 @@ public sealed class CompressedPfsFile
                 ? ((int)s.Offset, (int)s.Size)
                 : (0, 0);
 
-        return new CompressedPfsFile(buffer)
+        return new ProsperoCompressedPfsFile(buffer)
         {
-            Version = version == 3 ? PfsCompressionFormat.Version3 : PfsCompressionFormat.Version2,
-            Algorithm = (CompressionAlgorithm)span[OffEncodeParams],
+            Version = version == 3 ? ProsperoPfsCompressionFormat.Version3 : ProsperoPfsCompressionFormat.Version2,
+            Algorithm = (ProsperoCompressionAlgorithm)span[OffEncodeParams],
             CompressionLevel = (sbyte)span[OffEncodeParams + 1],
             WindowBits = span[OffEncodeParams + 2],
             BlockSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(span[OffBlockSize..])),
             UncompressedSize = uncompressedSize,
             TotalCompressedSize = totalCompressedSize,
-            FileDigest = buffer.Slice(OffFileDigest, PfsDigest.DigestLength),
+            FileDigest = buffer.Slice(OffFileDigest, ProsperoPfsDigest.DigestLength),
             GitHash = gitHash,
             DataOffset = dataOffset,
             Blocks = blocks,
@@ -357,7 +357,7 @@ public sealed class CompressedPfsFile
 
         int blockCount = (int)(bnd.Size / SectionEntrySize) - 1;
         sections.TryGetValue(SectionBlockHashes, out var hashSec);
-        bool haveHashes = hashSec.Size >= (long)blockCount * PfsDigest.DigestLength
+        bool haveHashes = hashSec.Size >= (long)blockCount * ProsperoPfsDigest.DigestLength
                           && InRange(span.Length, hashSec.Offset, hashSec.Size);
 
         for (int i = 0; i < blockCount; i++)
@@ -394,7 +394,7 @@ public sealed class CompressedPfsFile
 
             ReadOnlyMemory<byte> hash = ReadOnlyMemory<byte>.Empty;
             if (haveHashes)
-                hash = buffer.Slice((int)hashSec.Offset + i * PfsDigest.DigestLength, PfsDigest.DigestLength);
+                hash = buffer.Slice((int)hashSec.Offset + i * ProsperoPfsDigest.DigestLength, ProsperoPfsDigest.DigestLength);
 
             blocks.Add(new PfsBlock
             {

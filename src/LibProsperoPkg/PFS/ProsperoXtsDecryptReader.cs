@@ -12,12 +12,12 @@ namespace LibProsperoPkg.PFS;
 /// <summary>
 /// Provides XTS decryption on an IMemoryReader
 /// </summary>
-public class XtsDecryptReader : IMemoryReader
+public class ProsperoXtsDecryptReader : IMemoryReader
 {
     private byte[] dataKey;
     private byte[] tweakKey;
     /// <summary>
-    /// Size of each XEX sector
+    /// Size of each encryption sector
     /// </summary>
     private uint sectorSize;
     /// <summary>
@@ -31,7 +31,7 @@ public class XtsDecryptReader : IMemoryReader
     /// Creates an AES-XTS-128 stream.
     /// Reads will decrypt data.
     /// </summary>
-    public XtsDecryptReader(
+    public ProsperoXtsDecryptReader(
       IMemoryReader r,
       byte[] dataKey,
       byte[] tweakKey, uint startSector = 16, uint sectorSize = 0x1000)

@@ -8,15 +8,7 @@ using System.Collections.Generic;
 
 namespace LibProsperoPkg.PKG;
 
-public enum AppType : int
-{
-    PAID_STANDALONE_FULL = 1,
-    UPGRADABLE = 2,
-    DEMO = 3,
-    FREEMIUM = 4,
-};
-
-public enum IROTag : int
+public enum ProsperoCntIroTag : int
 {
     None = 0,
     /* theme variant 1 */
@@ -26,7 +18,7 @@ public enum IROTag : int
 };
 
 [Flags]
-public enum PKGFlags : uint
+public enum ProsperoCntFlags : uint
 {
     Unknown = 0x01,
     VER_1 = 0x01000000,
@@ -36,7 +28,7 @@ public enum PKGFlags : uint
 }
 
 [Flags]
-public enum ContentFlags : uint
+public enum ProsperoCntContentFlags : uint
 {
     FIRST_PATCH = 0x00100000,
     PATCHGO = 0x00200000,
@@ -44,13 +36,13 @@ public enum ContentFlags : uint
     PS_CLOUD = 0x00800000,
     GD_AC = 0x02000000,
     NON_GAME = 0x04000000,
-    Unk_x8000000 = 0x08000000, /* has data? */
+    Unk_x8000000 = 0x08000000,
     SUBSEQUENT_PATCH = 0x40000000,
     DELTA_PATCH = 0x41000000,
     CUMULATIVE_PATCH = 0x60000000,
 }
 
-public enum EntryId : uint
+public enum ProsperoCntEntryId : uint
 {
     DIGESTS = 0x00000001,
     ENTRY_KEYS = 0x00000010,
@@ -670,76 +662,76 @@ public enum EntryId : uint
     KEYMAP_RP__30__009_PNG = 0x000017F8,
     KEYMAP_RP__30__010_PNG = 0x000017F9,
 };
-public static class EntryNames
+public static class ProsperoCntEntryNames
 {
-    static EntryNames()
+    static ProsperoCntEntryNames()
     {
-        NameToId = new Dictionary<string, EntryId>();
-        IdToName = new Dictionary<EntryId, string>
+        NameToId = new Dictionary<string, ProsperoCntEntryId>();
+        IdToName = new Dictionary<ProsperoCntEntryId, string>
   {
-    { EntryId.DIGESTS, ".digests" },
-    { EntryId.ENTRY_KEYS, ".entry_keys" },
-    { EntryId.IMAGE_KEY, ".image_key" },
-    { EntryId.GENERAL_DIGESTS, ".general_digests" },
-    { EntryId.METAS, ".metas" },
-    { EntryId.ENTRY_NAMES, ".entry_names" },
-    { EntryId.LICENSE_DAT, "license.dat" },
-    { EntryId.LICENSE_INFO, "license.info" },
-    { EntryId.NPTITLE_DAT, "nptitle.dat" },
-    { EntryId.NPBIND_DAT, "npbind.dat" },
-    { EntryId.SELFINFO_DAT, "selfinfo.dat" },
-    { EntryId.IMAGEINFO_DAT, "imageinfo.dat" },
-    { EntryId.TARGET_DELTAINFO_DAT, "target-deltainfo.dat" },
-    { EntryId.ORIGIN_DELTAINFO_DAT, "origin-deltainfo.dat" },
-    { EntryId.PSRESERVED_DAT, "psreserved.dat" },
-    { EntryId.PARAM_SFO, "param.sfo" },
-    { EntryId.PLAYGO_CHUNK_DAT, "playgo-chunk.dat" },
-    { EntryId.PLAYGO_CHUNK_SHA, "playgo-chunk.sha" },
-    { EntryId.PLAYGO_MANIFEST_XML, "playgo-manifest.xml" },
-    { EntryId.PRONUNCIATION_SIG, "pronunciation.sig" },
-    { EntryId.PRONUNCIATION_XML, "pronunciation.xml" },
-    { EntryId.PIC1_PNG, "pic1.png" },
-    { EntryId.PUBTOOLINFO_DAT, "pubtoolinfo.dat" },
-    { EntryId.APP__PLAYGO_CHUNK_DAT, "app/playgo-chunk.dat" },
-    { EntryId.APP__PLAYGO_CHUNK_SHA, "app/playgo-chunk.sha" },
-    { EntryId.APP__PLAYGO_MANIFEST_XML, "app/playgo-manifest.xml" },
-    { EntryId.SHAREPARAM_JSON, "shareparam.json" },
-    { EntryId.SHAREOVERLAYIMAGE_PNG, "shareoverlayimage.png" },
-    { EntryId.SAVE_DATA_PNG, "save_data.png" },
-    { EntryId.SHAREPRIVACYGUARDIMAGE_PNG, "shareprivacyguardimage.png" },
-    { EntryId.ICON0_PNG, "icon0.png" },
-    { EntryId.PIC0_PNG, "pic0.png" },
-    { EntryId.SND0_AT9, "snd0.at9" },
-    { EntryId.CHANGEINFO__CHANGEINFO_XML, "changeinfo/changeinfo.xml" },
-    { EntryId.ICON0_DDS, "icon0.dds" },
-    { EntryId.PIC0_DDS, "pic0.dds" },
-    { EntryId.PIC1_DDS, "pic1.dds" },
+    { ProsperoCntEntryId.DIGESTS, ".digests" },
+    { ProsperoCntEntryId.ENTRY_KEYS, ".entry_keys" },
+    { ProsperoCntEntryId.IMAGE_KEY, ".image_key" },
+    { ProsperoCntEntryId.GENERAL_DIGESTS, ".general_digests" },
+    { ProsperoCntEntryId.METAS, ".metas" },
+    { ProsperoCntEntryId.ENTRY_NAMES, ".entry_names" },
+    { ProsperoCntEntryId.LICENSE_DAT, "license.dat" },
+    { ProsperoCntEntryId.LICENSE_INFO, "license.info" },
+    { ProsperoCntEntryId.NPTITLE_DAT, "nptitle.dat" },
+    { ProsperoCntEntryId.NPBIND_DAT, "npbind.dat" },
+    { ProsperoCntEntryId.SELFINFO_DAT, "selfinfo.dat" },
+    { ProsperoCntEntryId.IMAGEINFO_DAT, "imageinfo.dat" },
+    { ProsperoCntEntryId.TARGET_DELTAINFO_DAT, "target-deltainfo.dat" },
+    { ProsperoCntEntryId.ORIGIN_DELTAINFO_DAT, "origin-deltainfo.dat" },
+    { ProsperoCntEntryId.PSRESERVED_DAT, "psreserved.dat" },
+    { ProsperoCntEntryId.PARAM_SFO, "param.sfo" },
+    { ProsperoCntEntryId.PLAYGO_CHUNK_DAT, "playgo-chunk.dat" },
+    { ProsperoCntEntryId.PLAYGO_CHUNK_SHA, "playgo-chunk.sha" },
+    { ProsperoCntEntryId.PLAYGO_MANIFEST_XML, "playgo-manifest.xml" },
+    { ProsperoCntEntryId.PRONUNCIATION_SIG, "pronunciation.sig" },
+    { ProsperoCntEntryId.PRONUNCIATION_XML, "pronunciation.xml" },
+    { ProsperoCntEntryId.PIC1_PNG, "pic1.png" },
+    { ProsperoCntEntryId.PUBTOOLINFO_DAT, "pubtoolinfo.dat" },
+    { ProsperoCntEntryId.APP__PLAYGO_CHUNK_DAT, "app/playgo-chunk.dat" },
+    { ProsperoCntEntryId.APP__PLAYGO_CHUNK_SHA, "app/playgo-chunk.sha" },
+    { ProsperoCntEntryId.APP__PLAYGO_MANIFEST_XML, "app/playgo-manifest.xml" },
+    { ProsperoCntEntryId.SHAREPARAM_JSON, "shareparam.json" },
+    { ProsperoCntEntryId.SHAREOVERLAYIMAGE_PNG, "shareoverlayimage.png" },
+    { ProsperoCntEntryId.SAVE_DATA_PNG, "save_data.png" },
+    { ProsperoCntEntryId.SHAREPRIVACYGUARDIMAGE_PNG, "shareprivacyguardimage.png" },
+    { ProsperoCntEntryId.ICON0_PNG, "icon0.png" },
+    { ProsperoCntEntryId.PIC0_PNG, "pic0.png" },
+    { ProsperoCntEntryId.SND0_AT9, "snd0.at9" },
+    { ProsperoCntEntryId.CHANGEINFO__CHANGEINFO_XML, "changeinfo/changeinfo.xml" },
+    { ProsperoCntEntryId.ICON0_DDS, "icon0.dds" },
+    { ProsperoCntEntryId.PIC0_DDS, "pic0.dds" },
+    { ProsperoCntEntryId.PIC1_DDS, "pic1.dds" },
   };
         for (var i = 0; i < 31; i++)
         {
-            IdToName.Add((EntryId)((int)EntryId.ICON0_00_PNG + i), $"icon0_{i:d2}.png");
-            IdToName.Add((EntryId)((int)EntryId.ICON0_00_DDS + i), $"icon0_{i:d2}.dds");
-            IdToName.Add((EntryId)((int)EntryId.PIC1_00_PNG + i), $"pic1_{i:d2}.png");
-            IdToName.Add((EntryId)((int)EntryId.PIC1_00_DDS + i), $"pic1_{i:d2}.dds");
-            IdToName.Add((EntryId)((int)EntryId.CHANGEINFO__CHANGEINFO_00_XML + i), $"changeinfo/changeinfo_{i:d2}.xml");
+            IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.ICON0_00_PNG + i), $"icon0_{i:d2}.png");
+            IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.ICON0_00_DDS + i), $"icon0_{i:d2}.dds");
+            IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.PIC1_00_PNG + i), $"pic1_{i:d2}.png");
+            IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.PIC1_00_DDS + i), $"pic1_{i:d2}.dds");
+            IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.CHANGEINFO__CHANGEINFO_00_XML + i), $"changeinfo/changeinfo_{i:d2}.xml");
             if (i < 10)
             {
-                IdToName.Add((EntryId)((int)EntryId.KEYMAP_RP__001_PNG + i), $"keymap_rp/0{i + 1:d2}.png");
+                IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.KEYMAP_RP__001_PNG + i), $"keymap_rp/0{i + 1:d2}.png");
             }
             for (var j = 0; j < 10; j++)
             {
-                IdToName.Add((EntryId)((int)EntryId.KEYMAP_RP__00__001_PNG + (16 * i) + j), $"keymap_rp/{i:d2}/0{j + 1:d2}.png");
+                IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.KEYMAP_RP__00__001_PNG + (16 * i) + j), $"keymap_rp/{i:d2}/0{j + 1:d2}.png");
             }
         }
         for (var i = 0; i < 100; i++)
         {
-            IdToName.Add((EntryId)((int)EntryId.TROPHY__TROPHY00_TRP + i), $"trophy/trophy{i:d2}.trp");
+            IdToName.Add((ProsperoCntEntryId)((int)ProsperoCntEntryId.TROPHY__TROPHY00_TRP + i), $"trophy/trophy{i:d2}.trp");
         }
         foreach (var kv in IdToName)
         {
             NameToId.Add(kv.Value, kv.Key);
         }
     }
-    public static Dictionary<string, EntryId> NameToId;
-    public static Dictionary<EntryId, string> IdToName;
+    public static Dictionary<string, ProsperoCntEntryId> NameToId;
+    public static Dictionary<ProsperoCntEntryId, string> IdToName;
 }

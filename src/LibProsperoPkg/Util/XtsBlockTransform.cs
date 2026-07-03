@@ -48,7 +48,7 @@ public class XtsBlockTransform
     public void DecryptSector(byte[] sector, ulong sectorNum) => CryptSector(sector, sectorNum, false);
 
     /// <summary>
-    /// Encrypts or decrypts the given sector with XEX.
+    /// Encrypts or decrypts the given sector using the XTS transform.
     /// </summary>
     /// <param name="sector">Sector plain/ciphertext</param>
     /// <param name="sectorNum">Sector index number</param>

@@ -11,7 +11,7 @@ namespace LibProsperoPkg.PFS;
 /// <summary>
 /// Writes a PFSC header to to a stream. Doesn't actually do compression or anything interesting.
 /// </summary>
-class PFSCWriter
+class ProsperoPfscWriter
 {
     const int BlockSize = 0x10000;
     /*
@@ -28,7 +28,7 @@ class PFSCWriter
      * 0x10000 : Data (variable)
      */
     private long num_blocks;
-    public PFSCWriter(long size)
+    public ProsperoPfscWriter(long size)
     {
         num_blocks = (size + BlockSize - 1) / BlockSize;
         var pointer_table_size = 8 + num_blocks * 8;

@@ -117,7 +117,7 @@ public static class ProsperoPfsImage
             throw new FileNotFoundException("PFS image was not found.", imagePath);
 
         using var fs = File.OpenRead(imagePath);
-        var hdr = PfsHeader.ReadFromStream(fs);
+        var hdr = ProsperoPfsHeader.ReadFromStream(fs);
         return new ProsperoPfsImageInfo
         {
             Version = hdr.Version,
@@ -229,7 +229,7 @@ public static class ProsperoPfsImage
         long length = fs.Length;
 
         fs.Position = 0;
-        var hdr = PfsHeader.ReadFromStream(fs);
+        var hdr = ProsperoPfsHeader.ReadFromStream(fs);
 
         uint blockSize = hdr.BlockSize;
         if (blockSize == 0 || (blockSize % XtsSectorSize) != 0)

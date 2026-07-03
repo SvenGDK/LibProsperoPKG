@@ -26,7 +26,7 @@ namespace LibProsperoPkg.PFS.Compression;
 /// Kraken-compressed with <see cref="Oodle.OodleKrakenEncoder"/>; incompressible blocks are
 /// stored uncompressed. Both paths round-trip byte-exact through the decoder.
 /// </summary>
-public static class CompressedPfsFileWriter
+public static class ProsperoCompressedPfsFileWriter
 {
     /// <summary>The default logical block size for PS5 v3 containers (256 KiB).</summary>
     public const int DefaultBlockSize = 0x40000;
@@ -85,7 +85,7 @@ public static class CompressedPfsFileWriter
     public static byte[] WriteStored(ReadOnlySpan<byte> payload, int level = 7, int blockSize = DefaultBlockSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blockSize);
-        if (!PfsDigest.IsSupported)
+        if (!ProsperoPfsDigest.IsSupported)
             throw new PlatformNotSupportedException(
                 "SHA3-256 is required for the PS5 PFSv3 compression format but is not available on this host.");
 
@@ -94,7 +94,7 @@ public static class CompressedPfsFileWriter
         int sec1Size = GitHash.Length;
         int sec2Size = ShuffleTable.Length;
         int sec3Size = (blockCount + 1) * DirectoryEntrySize;
-        int sec4Size = blockCount * PfsDigest.DigestLength;
+        int sec4Size = blockCount * ProsperoPfsDigest.DigestLength;
         int sec5Size = blockCount * DirectoryEntrySize;
 
         int off1 = HeaderSize + SectionCount * DirectoryEntrySize;   // 0xB8
@@ -115,9 +115,9 @@ public static class CompressedPfsFileWriter
         BinaryPrimitives.WriteUInt16LittleEndian(span[0x06..], SectionCount);
         BinaryPrimitives.WriteUInt32LittleEndian(span[0x08..], (uint)blockSize);
         BinaryPrimitives.WriteUInt32LittleEndian(span[0x0C..], EncodeParam0C);
-        ulong encodeParam10 = (ulong)CompressionAlgorithm.Kraken
+        ulong encodeParam10 = (ulong)ProsperoCompressionAlgorithm.Kraken
                               | ((ulong)(byte)(sbyte)level << 8)
-                              | (PfsCompressionConstants.KrakenWindowBits << 16);
+                              | (ProsperoPfsCompressionConstants.KrakenWindowBits << 16);
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x10..], encodeParam10);
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x18..], (ulong)payload.Length);
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x20..], (ulong)totalSize);
@@ -157,8 +157,8 @@ public static class CompressedPfsFileWriter
                 (ulong)cumulative | (sizeHint << (int)SizeHintShift));
 
             ReadOnlySpan<byte> block = size == 0 ? default : payload.Slice((int)cumulative, size);
-            int h = off4 + i * PfsDigest.DigestLength;
-            PfsDigest.ComputeBlockDigest(block, span.Slice(h, PfsDigest.DigestLength));
+            int h = off4 + i * ProsperoPfsDigest.DigestLength;
+            ProsperoPfsDigest.ComputeBlockDigest(block, span.Slice(h, ProsperoPfsDigest.DigestLength));
 
             if (size > 0)
                 block.CopyTo(span[(off7 + (int)cumulative)..]);
@@ -175,8 +175,8 @@ public static class CompressedPfsFileWriter
         // and the decompressor ignores for stored blocks; validated to round-trip).
 
         // ---- file digest @0x28 = SHA3-256(header32 || id2 || id3 || id4) ----
-        byte[] digest = PfsDigest.ComputeFileDigest(
-            span.Slice(0x08, PfsDigest.FileDigestHeaderParamsLength),
+        byte[] digest = ProsperoPfsDigest.ComputeFileDigest(
+            span.Slice(0x08, ProsperoPfsDigest.FileDigestHeaderParamsLength),
             span.Slice(off2, sec2Size),
             span.Slice(off3, sec3Size),
             span.Slice(off4, sec4Size));
@@ -214,7 +214,7 @@ public static class CompressedPfsFileWriter
     public static byte[] WriteCompressed(ReadOnlySpan<byte> payload, int level = 7, int blockSize = DefaultBlockSize, bool useHuffmanArrays = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blockSize);
-        if (!PfsDigest.IsSupported)
+        if (!ProsperoPfsDigest.IsSupported)
             throw new PlatformNotSupportedException(
                 "SHA3-256 is required for the PS5 PFSv3 compression format but is not available on this host.");
 
@@ -255,7 +255,7 @@ public static class CompressedPfsFileWriter
         int sec1Size = GitHash.Length;
         int sec2Size = ShuffleTable.Length;
         int sec3Size = (blockCount + 1) * DirectoryEntrySize;
-        int sec4Size = blockCount * PfsDigest.DigestLength;
+        int sec4Size = blockCount * ProsperoPfsDigest.DigestLength;
         int sec5Size = blockCount * DirectoryEntrySize;
 
         int off1 = HeaderSize + SectionCount * DirectoryEntrySize;
@@ -276,9 +276,9 @@ public static class CompressedPfsFileWriter
         BinaryPrimitives.WriteUInt16LittleEndian(span[0x06..], SectionCount);
         BinaryPrimitives.WriteUInt32LittleEndian(span[0x08..], (uint)blockSize);
         BinaryPrimitives.WriteUInt32LittleEndian(span[0x0C..], EncodeParam0C);
-        ulong encodeParam10 = (ulong)CompressionAlgorithm.Kraken
+        ulong encodeParam10 = (ulong)ProsperoCompressionAlgorithm.Kraken
                               | ((ulong)(byte)(sbyte)level << 8)
-                              | (PfsCompressionConstants.KrakenWindowBits << 16);
+                              | (ProsperoPfsCompressionConstants.KrakenWindowBits << 16);
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x10..], encodeParam10);
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x18..], (ulong)payload.Length);
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x20..], (ulong)totalSize);
@@ -330,8 +330,8 @@ public static class CompressedPfsFileWriter
                 (ulong)cumulativeUncomp | (sizeHint << (int)SizeHintShift));
 
             ReadOnlySpan<byte> rawBlock = usize == 0 ? default : payload.Slice((int)cumulativeUncomp, usize);
-            int h = off4 + i * PfsDigest.DigestLength;
-            PfsDigest.ComputeBlockDigest(rawBlock, span.Slice(h, PfsDigest.DigestLength));
+            int h = off4 + i * ProsperoPfsDigest.DigestLength;
+            ProsperoPfsDigest.ComputeBlockDigest(rawBlock, span.Slice(h, ProsperoPfsDigest.DigestLength));
 
             if (csize > 0)
                 data.CopyTo(span[(off7 + (int)cumulativeComp)..]);
@@ -346,8 +346,8 @@ public static class CompressedPfsFileWriter
         BinaryPrimitives.WriteUInt64LittleEndian(span[(sentinel + 8)..], (ulong)payload.Length);
 
         // ---- file digest @0x28 = SHA3-256(header32 || id2 || id3 || id4) ----
-        byte[] digest = PfsDigest.ComputeFileDigest(
-            span.Slice(0x08, PfsDigest.FileDigestHeaderParamsLength),
+        byte[] digest = ProsperoPfsDigest.ComputeFileDigest(
+            span.Slice(0x08, ProsperoPfsDigest.FileDigestHeaderParamsLength),
             span.Slice(off2, sec2Size),
             span.Slice(off3, sec3Size),
             span.Slice(off4, sec4Size));

@@ -4,7 +4,6 @@
 // Shared utility primitives: crypto, binary IO and stream helpers.
 #nullable disable
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -50,50 +49,6 @@ public static class Crypto
     public static byte[] PfsGenSignKey(byte[] ekpfs, byte[] seed, bool newCrypt = false)
     {
         return PfsGenCryptoKey(newCrypt ? HMACSHA256.HashData(ekpfs, seed) : ekpfs, seed, 2);
-    }
-
-    /// <summary>
-    /// sceSblPfsSetKeys: Turns the EEKPfs to an EKPfs
-    /// </summary>
-    public static byte[] DecryptEEKPfs(byte[] eekpfs, RSAKeyset keyset)
-    {
-        var @params = new RSAParameters
-        {
-            D = keyset.PrivateExponent,
-            DP = keyset.Exponent1,
-            DQ = keyset.Exponent2,
-            Exponent = keyset.PublicExponent,
-            InverseQ = keyset.Coefficient,
-            Modulus = keyset.Modulus,
-            P = keyset.Prime1,
-            Q = keyset.Prime2
-        };
-        using (var rsa = RSA.Create())
-        {
-            rsa.KeySize = 2048;
-            rsa.ImportParameters(@params);
-            // sceSblPfsSetKeys performs textbook (unpadded) RSA. RSA.DecryptValue is
-            // unsupported on modern .NET (it throws), so do the modular exponentiation
-            // m = c^d mod n directly with the keyset's private exponent.
-            return RsaRawModExp(eekpfs, keyset.Modulus, keyset.PrivateExponent);
-        }
-    }
-
-    /// <summary>
-    /// Textbook (unpadded) RSA: computes <c>value^exponent mod modulus</c>. All inputs and
-    /// the 256-byte result are big-endian. Used for the raw RSA EEKPFS operation.
-    /// </summary>
-    private static byte[] RsaRawModExp(byte[] value, byte[] modulus, byte[] exponent)
-    {
-        // Append a trailing 0x00 (high byte in little-endian) to force a positive BigInteger.
-        var message = new BigInteger(value.Reverse().Concat(new byte[] { 0 }).ToArray());
-        var mod = new BigInteger(modulus.Reverse().Concat(new byte[] { 0 }).ToArray());
-        var exp = new BigInteger(exponent.Reverse().Concat(new byte[] { 0 }).ToArray());
-        var leResult = BigInteger.ModPow(message, exp, mod).ToByteArray().Take(256).ToArray();
-        return leResult
-          .Concat(Enumerable.Range(0, 256 - leResult.Length).Select(_ => (byte)0))
-          .Reverse()
-          .ToArray();
     }
 
     /// <summary>
@@ -161,50 +116,6 @@ public static class Crypto
 
         // 3. Encrypt the padded input with RSA 2048 (modular exponentiation)
         return RSA2048Encrypt(padded_input, modulus);
-    }
-
-    /// <summary>
-    /// Sign the given SHA-256 hash with PKCS1 padding
-    /// </summary>
-    /// <param name="sha256Hash">Hash</param>
-    /// <param name="keyset">Keys to use</param>
-    /// <returns>RSA 2048 signature of the hash</returns>
-    public static byte[] RSA2048SignSha256(byte[] sha256Hash, RSAKeyset keyset)
-    {
-        using RSA rsa = RSA.Create();
-        rsa.ImportParameters(new RSAParameters
-        {
-            P = keyset.Prime1,
-            Q = keyset.Prime2,
-            Exponent = keyset.PublicExponent,
-            Modulus = keyset.Modulus,
-            DP = keyset.Exponent1,
-            DQ = keyset.Exponent2,
-            InverseQ = keyset.Coefficient,
-            D = keyset.PrivateExponent
-        });
-        // Use the modern .NET RSA API. The legacy
-        // RSACryptoServiceProvider.SignHash(hash, oidString) overload routes the OID through
-        // Oid.FromFriendlyName, which raises (and internally swallows) a first-chance
-        // CryptographicException ("No OID value matches this name") on every call.
-        return rsa.SignHash(sha256Hash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-    }
-
-    public static bool RSA2048VerifySha256(byte[] sha256Hash, byte[] signature, RSAKeyset keyset)
-    {
-        using RSA rsa = RSA.Create();
-        rsa.ImportParameters(new RSAParameters
-        {
-            P = keyset.Prime1,
-            Q = keyset.Prime2,
-            Exponent = keyset.PublicExponent,
-            Modulus = keyset.Modulus,
-            DP = keyset.Exponent1,
-            DQ = keyset.Exponent2,
-            InverseQ = keyset.Coefficient,
-            D = keyset.PrivateExponent
-        });
-        return rsa.VerifyHash(sha256Hash, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
     }
 
     /// <summary>
@@ -409,61 +320,5 @@ public static class Crypto
             a[i] ^= b[i];
         }
         return a;
-    }
-    public static string AsHexCompact(this byte[] k)
-    {
-        StringBuilder sb = new StringBuilder(k.Length * 2);
-        foreach (var b in k)
-        {
-            sb.AppendFormat("{0:X2}", b);
-        }
-        return sb.ToString();
-    }
-
-    public static byte[] FromHexCompact(this string k)
-    {
-        var b = new List<byte>();
-        var key = k.Replace(" ", "");
-        for (var x = 0; x < key.Length - 1;)
-        {
-            byte result = 0;
-            int sub;
-            for (var i = 0; i < 2; i++, x++)
-            {
-                result <<= 4;
-                if (key[x] >= '0' && key[x] <= '9')
-                    sub = '0';
-                else if (key[x] >= 'a' && key[x] <= 'f')
-                    sub = 'a' - 10;
-                else if (key[x] >= 'A' && key[x] <= 'F')
-                    sub = 'A' - 10;
-                else
-                    continue;
-                result |= (byte)(key[x] - sub);
-            }
-            b.Add(result);
-        }
-        return b.ToArray();
-    }
-
-    // System.String.GetHashCode(): http://referencesource.microsoft.com/#mscorlib/system/string.cs,0a17bbac4851d0d4
-    // System.Web.Util.StringUtil.GetStringHashCode(System.String): http://referencesource.microsoft.com/#System.Web/Util/StringUtil.cs,c97063570b4e791a
-    public static int CombineHashCodes(params int[] hashCodes)
-    {
-        int hash1 = (5381 << 16) + 5381;
-        int hash2 = hash1;
-
-        int i = 0;
-        foreach (var hashCode in hashCodes)
-        {
-            if (i % 2 == 0)
-                hash1 = ((hash1 << 5) + hash1 + (hash1 >> 27)) ^ hashCode;
-            else
-                hash2 = ((hash2 << 5) + hash2 + (hash2 >> 27)) ^ hashCode;
-
-            ++i;
-        }
-
-        return hash1 + (hash2 * 1566083941);
     }
 }

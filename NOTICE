@@ -24,6 +24,27 @@ This library depends on the following package at build/run time:
 Derived code
 ------------------------------------------------------------------------
 
+The following components are derived from LibOrbisPkg by maxton, licensed
+under the GNU General Public License v3.0:
+<https://github.com/maxton/LibOrbisPkg>.
+
+  * General-purpose utilities in src/LibProsperoPkg/Util/: Crypto.cs,
+    Keys.cs, MemoryMapped.cs, MersenneTwister.cs, OffsetStream.cs,
+    StreamExtensions.cs, SubStream.cs, WriterBase.cs and
+    XtsBlockTransform.cs.
+
+  * The PFS filesystem model, builder and reader in src/LibProsperoPkg/PFS/:
+    ProsperoPfsStructs.cs, ProsperoPfsBuilder.cs, ProsperoPfsReader.cs,
+    ProsperoPfsProperties.cs, ProsperoFlatPathTable.cs, ProsperoFsTree.cs
+    and ProsperoXtsDecryptReader.cs.
+
+  * The container model and writer in src/LibProsperoPkg/PKG/:
+    ProsperoCnt.cs, ProsperoCntEntry.cs, ProsperoCntEnums.cs and
+    ProsperoCntWriter.cs.
+
+These files were adapted for the PS5 package and PFSv3 filesystem formats;
+their public types carry the Prospero prefix in this library.
+
 The Kraken (newLZ) decode and bitstream logic in
 src/LibProsperoPkg/PFS/Compression/Oodle/ (KrakenDecoder.cs,
 KrakenBitReader.cs, KrakenBitWriter.cs and the array-entropy helpers) is

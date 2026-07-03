@@ -262,8 +262,8 @@ public static class ProsperoOuterPfsBuilder
     private static void BuildSuperRootDirents(Span<byte> block)
     {
         using var ms = new MemoryStream(BlockSize);
-        new PfsDirent { InodeNumber = 1, Type = DirentType.File, Name = FlatPathTableName }.WriteToStream(ms);
-        new PfsDirent { InodeNumber = 2, Type = DirentType.Directory, Name = UrootName }.WriteToStream(ms);
+        new ProsperoPfsDirent { InodeNumber = 1, Type = ProsperoDirentType.File, Name = FlatPathTableName }.WriteToStream(ms);
+        new ProsperoPfsDirent { InodeNumber = 2, Type = ProsperoDirentType.Directory, Name = UrootName }.WriteToStream(ms);
         CopyStream(ms, block);
     }
 
@@ -271,14 +271,14 @@ public static class ProsperoOuterPfsBuilder
     {
         using var ms = new MemoryStream(BlockSize);
         // The uroot directory is inode 2 and references itself for "." and "..".
-        new PfsDirent { InodeNumber = 2, Type = DirentType.Dot, Name = "." }.WriteToStream(ms);
-        new PfsDirent { InodeNumber = 2, Type = DirentType.DotDot, Name = ".." }.WriteToStream(ms);
+        new ProsperoPfsDirent { InodeNumber = 2, Type = ProsperoDirentType.Dot, Name = "." }.WriteToStream(ms);
+        new ProsperoPfsDirent { InodeNumber = 2, Type = ProsperoDirentType.DotDot, Name = ".." }.WriteToStream(ms);
         for (int i = 0; i < files.Count; i++)
         {
-            new PfsDirent
+            new ProsperoPfsDirent
             {
                 InodeNumber = (uint)(MetadataInodeCount + i),
-                Type = DirentType.File,
+                Type = ProsperoDirentType.File,
                 Name = files[i].Name,
             }.WriteToStream(ms);
         }
@@ -317,7 +317,7 @@ public static class ProsperoOuterPfsBuilder
         int[] fileFirstBlock, int[] fileBlockCount,
         int superRootDirentIndex, int fltIndex, int urootDirentIndex)
     {
-        var inodes = new List<DinodeS32>(MetadataInodeCount + files.Count);
+        var inodes = new List<ProsperoDinodeS32>(MetadataInodeCount + files.Count);
 
         // inode 0: super-root directory (owns the super-root dirent block).
         inodes.Add(MakeMetaInode(ModeDir, nlink: 1, FlagsInternalMeta, size: BlockSize, p,
@@ -339,11 +339,11 @@ public static class ProsperoOuterPfsBuilder
             var blocks = new int[fileBlockCount[i]];
             for (int j = 0; j < blocks.Length; j++) blocks[j] = fileFirstBlock[i] + j;
 
-            var di = new DinodeS32
+            var di = new ProsperoDinodeS32
             {
-                Mode = (InodeMode)ModeFile,
+                Mode = (ProsperoInodeMode)ModeFile,
                 Nlink = 1,
-                Flags = (InodeFlags)FlagsFile,
+                Flags = (ProsperoInodeFlags)FlagsFile,
                 Size = f.Data.Length,
                 SizeCompressed = f.SizeCompressed ?? f.Data.Length,
                 Blocks = (uint)blocks.Length,
@@ -355,19 +355,19 @@ public static class ProsperoOuterPfsBuilder
 
         // Serialize the inode table into block D+1.
         using var ms = new MemoryStream(BlockSize);
-        foreach (DinodeS32 di in inodes) di.WriteToStream(ms);
+        foreach (ProsperoDinodeS32 di in inodes) di.WriteToStream(ms);
         CopyStream(ms, image.AsSpan(inodeTableIndex * BlockSize, BlockSize));
     }
 
-    private static DinodeS32 MakeMetaInode(
+    private static ProsperoDinodeS32 MakeMetaInode(
         ushort mode, ushort nlink, uint flags, long size,
         ProsperoOuterPfsBuildParameters p, byte[] image, int[] ownedBlocks)
     {
-        var di = new DinodeS32
+        var di = new ProsperoDinodeS32
         {
-            Mode = (InodeMode)mode,
+            Mode = (ProsperoInodeMode)mode,
             Nlink = nlink,
-            Flags = (InodeFlags)flags,
+            Flags = (ProsperoInodeFlags)flags,
             Size = size,
             SizeCompressed = size,
         };
@@ -376,14 +376,14 @@ public static class ProsperoOuterPfsBuilder
         return di;
     }
 
-    private static void StampTime(DinodeS32 di, ProsperoOuterPfsBuildParameters p)
+    private static void StampTime(ProsperoDinodeS32 di, ProsperoOuterPfsBuildParameters p)
     {
         di.Time1_sec = di.Time2_sec = di.Time3_sec = di.Time4_sec = p.TimestampSeconds;
         di.Time1_nsec = di.Time2_nsec = di.Time3_nsec = di.Time4_nsec = p.TimestampNanoseconds;
     }
 
     // Fills a signed dinode's direct-block entries with { SHA3-256(plaintext block), block index }.
-    private static void FillSignedBlocks(DinodeS32 di, byte[] image, int[] blocks)
+    private static void FillSignedBlocks(ProsperoDinodeS32 di, byte[] image, int[] blocks)
     {
         di.Blocks = (uint)blocks.Length;
         for (int j = 0; j < blocks.Length; j++)
@@ -404,7 +404,7 @@ public static class ProsperoOuterPfsBuilder
 
         // The super-root inode is embedded in the superblock as its InodeBlockSig (DinodeS64),
         // storing SHA3-256(inode table) at sb+0xb8 and the inode-table block index at sb+0xd8.
-        var superRoot = new DinodeS64
+        var superRoot = new ProsperoDinodeS64
         {
             Mode = 0,
             Nlink = 1,
@@ -418,11 +418,11 @@ public static class ProsperoOuterPfsBuilder
         superRoot.db[0].sig = inodeTableHash;
         superRoot.db[0].block = inodeTableIndex;
 
-        var hdr = new PfsHeader
+        var hdr = new ProsperoPfsHeader
         {
-            Version = PfsHeader.VersionPs5,
+            Version = ProsperoPfsHeader.VersionPs5,
             ReadOnly = 1,
-            Mode = (PfsMode)0x0D,
+            Mode = (ProsperoPfsMode)0x0D,
             BlockSize = BlockSize,
             NBlock = 1,
             DinodeCount = ninodes,

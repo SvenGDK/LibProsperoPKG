@@ -55,7 +55,7 @@ public sealed class ProsperoCompressedPfsImageResult
 public static class ProsperoCompressedPfsImage
 {
     /// <summary>The default PS5 v3 logical block size (256 KiB), matching "nwonly".</summary>
-    public const int DefaultBlockSize = CompressedPfsFileWriter.DefaultBlockSize;
+    public const int DefaultBlockSize = ProsperoCompressedPfsFileWriter.DefaultBlockSize;
 
     /// <summary>The default Kraken level recorded in the header (7, matching "nwonly").</summary>
     public const int DefaultLevel = 7;
@@ -71,7 +71,7 @@ public static class ProsperoCompressedPfsImage
     /// <param name="blockSize">The logical block size. Default 256 KiB. Must be positive.</param>
     /// <returns>The serialized PFSv3 'PFSC' container.</returns>
     public static byte[] Pack(ReadOnlySpan<byte> image, int level = DefaultLevel, int blockSize = DefaultBlockSize)
-        => CompressedPfsFileWriter.WriteCompressed(image, level, blockSize);
+        => ProsperoCompressedPfsFileWriter.WriteCompressed(image, level, blockSize);
 
     /// <summary>
     /// Wraps an already-prepared inner image into a PS5 Kraken PFSv3 container, storing every block
@@ -82,7 +82,7 @@ public static class ProsperoCompressedPfsImage
     /// <param name="blockSize">The logical block size. Default 256 KiB. Must be positive.</param>
     /// <returns>The serialized PFSv3 'PFSC' container with stored blocks.</returns>
     public static byte[] PackStored(ReadOnlySpan<byte> image, int level = DefaultLevel, int blockSize = DefaultBlockSize)
-        => CompressedPfsFileWriter.WriteStored(image, level, blockSize);
+        => ProsperoCompressedPfsFileWriter.WriteStored(image, level, blockSize);
 
     /// <summary>
     /// Compresses a prepared inner image file at <paramref name="inputImagePath"/> into a PS5 Kraken
@@ -123,7 +123,7 @@ public static class ProsperoCompressedPfsImage
         File.WriteAllBytes(outputPath, container);
 
         // Parse the produced container to report accurate block statistics.
-        var parsed = CompressedPfsFile.Parse(container);
+        var parsed = ProsperoCompressedPfsFile.Parse(container);
         int compressed = 0;
         foreach (var block in parsed.Blocks)
             if (!block.IsStored) compressed++;
@@ -156,7 +156,7 @@ public static class ProsperoCompressedPfsImage
     public static byte[] Unpack(byte[] container)
     {
         ArgumentNullException.ThrowIfNull(container);
-        return CompressedPfsFile.Parse(container).Decompress();
+        return ProsperoCompressedPfsFile.Parse(container).Decompress();
     }
 
     /// <summary>
@@ -225,7 +225,7 @@ public static class ProsperoCompressedPfsImage
     {
         byte[] container = Pack(image, level, blockSize);
         if (!IsScePfsImage(container)) return false;
-        byte[] restored = CompressedPfsFile.Parse(container).Decompress();
+        byte[] restored = ProsperoCompressedPfsFile.Parse(container).Decompress();
         return restored.AsSpan().SequenceEqual(image);
     }
 }

@@ -17,25 +17,25 @@ namespace LibProsperoPkg.PFS;
 /// <summary>
 /// Contains the functionality to construct a PFS disk image.
 /// </summary>
-public class PfsBuilder
+public class ProsperoPfsBuilder
 {
     static int CeilDiv(int a, int b) => a / b + (a % b == 0 ? 0 : 1);
     static long CeilDiv(long a, long b) => a / b + (a % b == 0 ? 0 : 1);
 
-    private PfsHeader hdr;
-    private List<Inode> inodes;
-    private List<PfsDirent> super_root_dirents;
+    private ProsperoPfsHeader hdr;
+    private List<ProsperoInode> inodes;
+    private List<ProsperoPfsDirent> super_root_dirents;
 
-    private Inode super_root_ino, fpt_ino, cr_ino;
+    private ProsperoInode super_root_ino, fpt_ino, cr_ino;
 
-    private List<FSDir> allDirs;
-    private List<FSFile> allFiles;
-    private List<FSNode> allNodes;
+    private List<ProsperoFsDir> allDirs;
+    private List<ProsperoFsFile> allFiles;
+    private List<ProsperoFsNode> allNodes;
 
-    private FlatPathTable fpt;
-    private CollisionResolver colResolver;
+    private ProsperoFlatPathTable fpt;
+    private ProsperoCollisionResolver colResolver;
 
-    private PfsProperties properties;
+    private ProsperoPfsProperties properties;
 
     private int emptyBlock = 0x4;
     const int xtsSectorSize = 0x1000;
@@ -93,7 +93,7 @@ public class PfsBuilder
     /// </summary>
     /// <param name="p">Properties for the image to be built</param>
     /// <param name="logger">Function that is called to report realtime PFS build status.</param>
-    public PfsBuilder(PfsProperties p, Action<string> logger = null)
+    public ProsperoPfsBuilder(ProsperoPfsProperties p, Action<string> logger = null)
     {
         this.logger = logger;
         properties = p;
@@ -141,13 +141,13 @@ public class PfsBuilder
             DinodeFlags = (uint)hdr.InodeBlockSig.Flags,
             Seed = hdr.Seed,
             SuperblockIcv = SuperblockIcv,
-            Signed = hdr.Mode.HasFlag(PfsMode.Signed),
-            Encrypted = hdr.Mode.HasFlag(PfsMode.Encrypted),
+            Signed = hdr.Mode.HasFlag(ProsperoPfsMode.Signed),
+            Encrypted = hdr.Mode.HasFlag(ProsperoPfsMode.Encrypted),
             Root = root,
         };
     }
 
-    static ProsperoPfsImageNode ImageNodeFromInode(Inode ino, string name, bool isDir, bool isInternal) => new()
+    static ProsperoPfsImageNode ImageNodeFromInode(ProsperoInode ino, string name, bool isDir, bool isInternal) => new()
     {
         Name = name,
         IsDirectory = isDir,
@@ -160,10 +160,10 @@ public class PfsBuilder
         Nlink = ino.Nlink,
         StartBlock = ino.StartBlock,
         Blocks = ino.Blocks,
-        Compressed = (ino.Flags & InodeFlags.compressed) != 0,
+        Compressed = (ino.Flags & ProsperoInodeFlags.compressed) != 0,
     };
 
-    static ProsperoPfsImageNode ImageNodeFromDir(FSDir dir)
+    static ProsperoPfsImageNode ImageNodeFromDir(ProsperoFsDir dir)
     {
         var node = ImageNodeFromFsNode(dir, isDir: true);
         foreach (var d in dir.Dirs.OrderBy(d => d.name, StringComparer.Ordinal))
@@ -177,7 +177,7 @@ public class PfsBuilder
         return node;
     }
 
-    static ProsperoPfsImageNode ImageNodeFromFsNode(FSNode n, bool isDir)
+    static ProsperoPfsImageNode ImageNodeFromFsNode(ProsperoFsNode n, bool isDir)
     {
         var ino = n.ino;
         return new ProsperoPfsImageNode
@@ -192,7 +192,7 @@ public class PfsBuilder
             Nlink = ino?.Nlink ?? 0,
             StartBlock = ino?.StartBlock ?? 0,
             Blocks = ino?.Blocks ?? 0,
-            Compressed = ino != null && (ino.Flags & InodeFlags.compressed) != 0,
+            Compressed = ino != null && (ino.Flags & ProsperoInodeFlags.compressed) != 0,
         };
     }
 
@@ -201,23 +201,20 @@ public class PfsBuilder
     /// </summary>
     void Setup()
     {
-        // TODO: Combine the superroot-specific stuff with the rest of the data block writing.
-        // I think this is as simple as adding superroot and flat_path_table to allNodes
-
         // Insert header digest to be calculated with the rest of the digests
         final_sigs.Push(new BlockSigInfo(0, 0x380, 0x5A0));
-        hdr = new PfsHeader
+        hdr = new ProsperoPfsHeader
         {
             Version = properties.Version,
             BlockSize = properties.BlockSize,
             ReadOnly = 1,
-            Mode = (properties.Sign ? PfsMode.Signed : 0)
-               | (properties.Encrypt ? PfsMode.Encrypted : 0)
-               | PfsMode.UnknownFlagAlwaysSet,
+            Mode = (properties.Sign ? ProsperoPfsMode.Signed : 0)
+               | (properties.Encrypt ? ProsperoPfsMode.Encrypted : 0)
+               | ProsperoPfsMode.UnknownFlagAlwaysSet,
             UnknownIndex = 1,
             Seed = properties.Encrypt || properties.Sign ? properties.Seed : null
         };
-        inodes = new List<Inode>();
+        inodes = new List<ProsperoInode>();
 
         Log("Setting up filesystem structure...");
         allDirs = properties.root.GetAllChildrenDirs();
@@ -236,18 +233,18 @@ public class PfsBuilder
                 name = parent.name + "/" + name;
                 parent = parent.Parent;
             }
-            return !is_sce_sys || !PKG.EntryNames.NameToId.ContainsKey(name);
+            return !is_sce_sys || !PKG.ProsperoCntEntryNames.NameToId.ContainsKey(name);
         }).ToList();
-        allNodes = new List<FSNode>(allDirs.OrderBy(d => d.FullPath()).ToList());
+        allNodes = new List<ProsperoFsNode>(allDirs.OrderBy(d => d.FullPath()).ToList());
         allNodes.AddRange(allFiles);
 
-        SetupRootStructure(FlatPathTable.HasCollision(allNodes));
+        SetupRootStructure(ProsperoFlatPathTable.HasCollision(allNodes));
 
         Log($"Creating inodes ({allDirs.Count} dirs and {allFiles.Count} files)...");
         addDirInodes();
         addFileInodes();
 
-        (fpt, colResolver) = FlatPathTable.Create(allNodes);
+        (fpt, colResolver) = ProsperoFlatPathTable.Create(allNodes);
 
         Log("Calculating data block layout...");
         allNodes.Insert(0, properties.root);
@@ -261,13 +258,13 @@ public class PfsBuilder
         WriteInodes(stream);
         WriteSuperrootDirents(stream);
 
-        allNodes.Insert(0, new FSFile(s => fpt.WriteToStream(s), "flat_path_table", fpt.Size)
+        allNodes.Insert(0, new ProsperoFsFile(s => fpt.WriteToStream(s), "flat_path_table", fpt.Size)
         {
             ino = fpt_ino
         });
         if (colResolver != null)
         {
-            allNodes.Insert(1, new FSFile(s => colResolver.WriteToStream(s), "collision_resolver", colResolver.Size)
+            allNodes.Insert(1, new ProsperoFsFile(s => colResolver.WriteToStream(s), "collision_resolver", colResolver.Size)
             {
                 ino = cr_ino
             });
@@ -313,7 +310,7 @@ public class PfsBuilder
         }
         using (var view = file.CreateViewAccessor(offset, CalculatePfsSize(), MemoryMappedFileAccess.ReadWrite))
         {
-            if (hdr.Mode.HasFlag(PfsMode.Signed))
+            if (hdr.Mode.HasFlag(ProsperoPfsMode.Signed))
             {
                 Log("Signing in parallel...");
                 var signKey = Crypto.PfsGenSignKey(properties.EKPFS, hdr.Seed);
@@ -344,7 +341,7 @@ public class PfsBuilder
                 }
             }
 
-            if (hdr.Mode.HasFlag(PfsMode.Encrypted))
+            if (hdr.Mode.HasFlag(ProsperoPfsMode.Encrypted))
             {
                 Log("Encrypting in parallel...");
                 var (tweakKey, dataKey) = Crypto.PfsGenEncKey(properties.EKPFS, hdr.Seed);
@@ -376,7 +373,7 @@ public class PfsBuilder
     {
         WriteData(stream);
 
-        if (hdr.Mode.HasFlag(PfsMode.Signed))
+        if (hdr.Mode.HasFlag(ProsperoPfsMode.Signed))
         {
             Log("Signing...");
             var signKey = Crypto.PfsGenSignKey(properties.EKPFS, hdr.Seed);
@@ -396,7 +393,7 @@ public class PfsBuilder
             }
         }
 
-        if (CaptureImageDigests && hdr.Mode.HasFlag(PfsMode.Signed))
+        if (CaptureImageDigests && hdr.Mode.HasFlag(ProsperoPfsMode.Signed))
         {
             // sce_sys/imagedigs.dat preimage: one per-block descriptor digest for every block
             // of the plaintext signed image (captured here, before XTS encryption), stored from last
@@ -419,7 +416,7 @@ public class PfsBuilder
             ImageDigests = digs;
         }
 
-        if (hdr.Mode.HasFlag(PfsMode.Encrypted))
+        if (hdr.Mode.HasFlag(ProsperoPfsMode.Encrypted))
         {
             Log("Encrypting...");
             var (tweakKey, dataKey) = Crypto.PfsGenEncKey(properties.EKPFS, hdr.Seed);
@@ -445,18 +442,18 @@ public class PfsBuilder
         foreach (var dir in allDirs.OrderBy(x => x.FullPath()))
         {
             var ino = MakeInode(
-              Mode: InodeMode.dir | Inode.RXOnly,
+              Mode: ProsperoInodeMode.dir | ProsperoInode.RXOnly,
               Number: (uint)inodes.Count,
               Blocks: 1,
               Size: 65536,
-              Flags: InodeFlags.@readonly,
+              Flags: ProsperoInodeFlags.@readonly,
               Nlink: 2 // 1 link each for its own dirent and its . dirent
             );
             dir.ino = ino;
-            dir.Dirents.Add(new PfsDirent { Name = ".", InodeNumber = ino.Number, Type = DirentType.Dot });
-            dir.Dirents.Add(new PfsDirent { Name = "..", InodeNumber = dir.Parent.ino.Number, Type = DirentType.DotDot });
+            dir.Dirents.Add(new ProsperoPfsDirent { Name = ".", InodeNumber = ino.Number, Type = ProsperoDirentType.Dot });
+            dir.Dirents.Add(new ProsperoPfsDirent { Name = "..", InodeNumber = dir.Parent.ino.Number, Type = ProsperoDirentType.DotDot });
 
-            var dirent = new PfsDirent { Name = dir.name, InodeNumber = (uint)inodes.Count, Type = DirentType.Directory };
+            var dirent = new ProsperoPfsDirent { Name = dir.name, InodeNumber = (uint)inodes.Count, Type = ProsperoDirentType.Directory };
             dir.Parent.Dirents.Add(dirent);
             dir.Parent.ino.Nlink++;
             inodes.Add(ino);
@@ -471,19 +468,19 @@ public class PfsBuilder
         foreach (var file in allFiles.OrderBy(x => x.FullPath()))
         {
             var ino = MakeInode(
-              Mode: InodeMode.file | Inode.RXOnly,
+              Mode: ProsperoInodeMode.file | ProsperoInode.RXOnly,
               Size: file.Size,
               SizeCompressed: file.CompressedSize,
               Number: (uint)inodes.Count,
               Blocks: (uint)CeilDiv(file.Size, hdr.BlockSize),
-              Flags: InodeFlags.@readonly | (file.Compress ? InodeFlags.compressed : 0)
+              Flags: ProsperoInodeFlags.@readonly | (file.Compress ? ProsperoInodeFlags.compressed : 0)
             );
-            if (properties.Sign) // HACK: Outer PFS images don't use readonly?
+            if (properties.Sign) // Outer PFS images clear the readonly flag.
             {
-                ino.Flags &= ~InodeFlags.@readonly;
+                ino.Flags &= ~ProsperoInodeFlags.@readonly;
             }
             file.ino = ino;
-            var dirent = new PfsDirent { Name = file.name, Type = DirentType.File, InodeNumber = (uint)inodes.Count };
+            var dirent = new ProsperoPfsDirent { Name = file.name, Type = ProsperoDirentType.File, InodeNumber = (uint)inodes.Count };
             file.Parent.Dirents.Add(dirent);
             inodes.Add(ino);
         }
@@ -512,19 +509,18 @@ public class PfsBuilder
     ///Given an inode number and an index into the db[] array, returns the absolute offset of that array value
     ///</summary>
     long inoNumberToOffset(uint number, int db = 0)
-      => hdr.BlockSize + (DinodeS32.SizeOf * number) + 0x64 + (36 * db);
+      => hdr.BlockSize + (ProsperoDinodeS32.SizeOf * number) + 0x64 + (36 * db);
 
     /// <summary>
     /// Sets the data blocks. Also updates header for total number of data blocks.
     /// </summary>
     void CalculateDataBlockLayout()
     {
-        // TODO: Consolidate of all this duplicate code
         if (properties.Sign)
         {
             // Include the header block in the total count
             hdr.Ndblock = 1;
-            var inodesPerBlock = hdr.BlockSize / DinodeS32.SizeOf;
+            var inodesPerBlock = hdr.BlockSize / ProsperoDinodeS32.SizeOf;
             hdr.DinodeCount = inodes.Count;
             hdr.DinodeBlockCount = CeilDiv(inodes.Count, inodesPerBlock);
             hdr.InodeBlockSig.Blocks = (uint)hdr.DinodeBlockCount;
@@ -555,9 +551,9 @@ public class PfsBuilder
                 final_sigs.Push(new BlockSigInfo(fpt_ino.StartBlock, inoNumberToOffset(fpt_ino.Number, i)));
             }
 
-            // DATs I've found include an empty block after the FPT
+            // An empty block follows the flat path table.
             hdr.Ndblock++;
-            // HACK: outer PFS has a block of zeroes that is not encrypted???
+            // The outer PFS reserves an unencrypted zero block here.
             emptyBlock = (int)hdr.Ndblock;
             hdr.Ndblock++;
 
@@ -571,7 +567,7 @@ public class PfsBuilder
                 var blocks = CeilDiv(n.Size, hdr.BlockSize);
                 n.ino.SetDirectBlock(0, (int)hdr.Ndblock);
                 n.ino.Blocks = (uint)blocks;
-                n.ino.Size = n is FSDir ? roundUpSizeToBlock(n.Size) : n.Size;
+                n.ino.Size = n is ProsperoFsDir ? roundUpSizeToBlock(n.Size) : n.Size;
                 if (n.ino.SizeCompressed == 0)
                     n.ino.SizeCompressed = n.ino.Size;
 
@@ -615,7 +611,7 @@ public class PfsBuilder
         {
             // Include the header block in the total count
             hdr.Ndblock = 1;
-            var inodesPerBlock = hdr.BlockSize / DinodeD32.SizeOf;
+            var inodesPerBlock = hdr.BlockSize / ProsperoDinodeD32.SizeOf;
             hdr.DinodeCount = inodes.Count;
             hdr.DinodeBlockCount = CeilDiv(inodes.Count, inodesPerBlock);
             hdr.InodeBlockSig.Blocks = (uint)hdr.DinodeBlockCount;
@@ -641,7 +637,7 @@ public class PfsBuilder
             for (int i = 1; i < fpt_ino.Blocks && i < 12; i++)
                 fpt_ino.SetDirectBlock(i, (int)hdr.Ndblock++);
 
-            // DATs I've found include an empty block after the FPT if there's no collision resolver
+            // An empty block follows the flat path table when no collision resolver is present.
             if (cr_ino == null)
             {
                 hdr.Ndblock++;
@@ -664,7 +660,7 @@ public class PfsBuilder
                 var blocks = CeilDiv(n.Size, hdr.BlockSize);
                 n.ino.SetDirectBlock(0, (int)hdr.Ndblock);
                 n.ino.Blocks = (uint)blocks;
-                n.ino.Size = n is FSDir ? roundUpSizeToBlock(n.Size) : n.Size;
+                n.ino.Size = n is ProsperoFsDir ? roundUpSizeToBlock(n.Size) : n.Size;
                 if (n.ino.SizeCompressed == 0)
                     n.ino.SizeCompressed = n.ino.Size;
                 for (int i = 1; i < blocks && i < 12; i++)
@@ -674,16 +670,16 @@ public class PfsBuilder
                 hdr.Ndblock += blocks;
             }
         }
-        // Hack: set a minimum size for the PFS image.
+        // Enforce the configured minimum PFS image size.
         hdr.Ndblock = Math.Max(hdr.Ndblock, properties.MinBlocks);
     }
 
-    Inode MakeInode(InodeMode Mode, uint Blocks, long Size = 0, long SizeCompressed = 0, ushort Nlink = 1, uint Number = 0, InodeFlags Flags = 0)
+    ProsperoInode MakeInode(ProsperoInodeMode Mode, uint Blocks, long Size = 0, long SizeCompressed = 0, ushort Nlink = 1, uint Number = 0, ProsperoInodeFlags Flags = 0)
     {
-        Inode ret;
+        ProsperoInode ret;
         if (properties.Sign)
         {
-            ret = new DinodeS32()
+            ret = new ProsperoDinodeS32()
             {
                 Mode = Mode,
                 Blocks = Blocks,
@@ -691,12 +687,12 @@ public class PfsBuilder
                 SizeCompressed = SizeCompressed,
                 Nlink = Nlink,
                 Number = Number,
-                Flags = Flags | InodeFlags.unk2 | InodeFlags.unk3,
+                Flags = Flags | ProsperoInodeFlags.unk2 | ProsperoInodeFlags.unk3,
             };
         }
         else
         {
-            ret = new DinodeD32()
+            ret = new ProsperoDinodeD32()
             {
                 Mode = Mode,
                 Blocks = Blocks,
@@ -719,63 +715,63 @@ public class PfsBuilder
     {
         var inodeNum = 0u;
         inodes.Add(super_root_ino = MakeInode(
-          Mode: InodeMode.dir | Inode.RXOnly,
+          Mode: ProsperoInodeMode.dir | ProsperoInode.RXOnly,
           Blocks: 1,
           Size: 65536,
           SizeCompressed: 65536,
           Nlink: 1,
           Number: inodeNum++,
-          Flags: InodeFlags.@internal | InodeFlags.@readonly
+          Flags: ProsperoInodeFlags.@internal | ProsperoInodeFlags.@readonly
         ));
         inodes.Add(fpt_ino = MakeInode(
-          Mode: InodeMode.file | Inode.RXOnly,
+          Mode: ProsperoInodeMode.file | ProsperoInode.RXOnly,
           Blocks: 1,
           Number: inodeNum++,
-          Flags: InodeFlags.@internal | InodeFlags.@readonly
+          Flags: ProsperoInodeFlags.@internal | ProsperoInodeFlags.@readonly
         ));
         if (hasCollision)
         {
             inodes.Add(cr_ino = MakeInode(
-              Mode: InodeMode.file | Inode.RXOnly,
+              Mode: ProsperoInodeMode.file | ProsperoInode.RXOnly,
               Blocks: 1,
               Number: inodeNum++,
-              Flags: InodeFlags.@internal | InodeFlags.@readonly
+              Flags: ProsperoInodeFlags.@internal | ProsperoInodeFlags.@readonly
             ));
         }
         var uroot_ino = MakeInode(
-          Mode: InodeMode.dir | Inode.RXOnly,
+          Mode: ProsperoInodeMode.dir | ProsperoInode.RXOnly,
           Number: inodeNum++,
           Size: 65536,
           SizeCompressed: 65536,
           Blocks: 1,
-          Flags: InodeFlags.@readonly,
+          Flags: ProsperoInodeFlags.@readonly,
           Nlink: 3
         );
 
-        super_root_dirents = new List<PfsDirent>
+        super_root_dirents = new List<ProsperoPfsDirent>
   {
-    new PfsDirent { InodeNumber = fpt_ino.Number, Name = "flat_path_table", Type = DirentType.File },
+    new ProsperoPfsDirent { InodeNumber = fpt_ino.Number, Name = "flat_path_table", Type = ProsperoDirentType.File },
   };
         if (hasCollision)
         {
             super_root_dirents.Add(
-              new PfsDirent { InodeNumber = cr_ino.Number, Name = "collision_resolver", Type = DirentType.File });
+              new ProsperoPfsDirent { InodeNumber = cr_ino.Number, Name = "collision_resolver", Type = ProsperoDirentType.File });
         }
         super_root_dirents.Add(
-          new PfsDirent { InodeNumber = uroot_ino.Number, Name = "uroot", Type = DirentType.Directory });
+          new ProsperoPfsDirent { InodeNumber = uroot_ino.Number, Name = "uroot", Type = ProsperoDirentType.Directory });
 
         properties.root.name = "uroot";
         properties.root.ino = uroot_ino;
-        properties.root.Dirents = new List<PfsDirent>
+        properties.root.Dirents = new List<ProsperoPfsDirent>
   {
-    new PfsDirent { Name = ".", Type = DirentType.Dot, InodeNumber = uroot_ino.Number },
-    new PfsDirent { Name = "..", Type = DirentType.DotDot, InodeNumber = uroot_ino.Number }
+    new ProsperoPfsDirent { Name = ".", Type = ProsperoDirentType.Dot, InodeNumber = uroot_ino.Number },
+    new ProsperoPfsDirent { Name = "..", Type = ProsperoDirentType.DotDot, InodeNumber = uroot_ino.Number }
   };
-        if (properties.Sign) // HACK: Outer PFS lacks readonly flags
+        if (properties.Sign) // Outer PFS clears readonly flags.
         {
-            super_root_ino.Flags &= ~InodeFlags.@readonly;
-            fpt_ino.Flags &= ~InodeFlags.@readonly;
-            uroot_ino.Flags &= ~InodeFlags.@readonly;
+            super_root_ino.Flags &= ~ProsperoInodeFlags.@readonly;
+            fpt_ino.Flags &= ~ProsperoInodeFlags.@readonly;
+            uroot_ino.Flags &= ~ProsperoInodeFlags.@readonly;
         }
     }
 
@@ -789,7 +785,7 @@ public class PfsBuilder
         foreach (var di in inodes)
         {
             di.WriteToStream(s);
-            if (s.Position % hdr.BlockSize > hdr.BlockSize - (properties.Sign ? DinodeS32.SizeOf : DinodeD32.SizeOf))
+            if (s.Position % hdr.BlockSize > hdr.BlockSize - (properties.Sign ? ProsperoDinodeS32.SizeOf : ProsperoDinodeD32.SizeOf))
             {
                 s.Position += hdr.BlockSize - (s.Position % hdr.BlockSize);
             }
@@ -814,24 +810,24 @@ public class PfsBuilder
     /// </summary>
     /// <param name="s"></param>
     /// <param name="f"></param>
-    void WriteFSNode(Stream s, FSNode f)
+    void WriteFSNode(Stream s, ProsperoFsNode f)
     {
-        if (f is FSDir)
+        if (f is ProsperoFsDir)
         {
-            var dir = (FSDir)f;
+            var dir = (ProsperoFsDir)f;
             var startBlock = f.ino.StartBlock;
             foreach (var d in dir.Dirents)
             {
                 d.WriteToStream(s);
-                if (s.Position % hdr.BlockSize > hdr.BlockSize - PfsDirent.MaxSize)
+                if (s.Position % hdr.BlockSize > hdr.BlockSize - ProsperoPfsDirent.MaxSize)
                 {
                     s.Position = (++startBlock * hdr.BlockSize);
                 }
             }
         }
-        else if (f is FSFile)
+        else if (f is ProsperoFsFile)
         {
-            var file = (FSFile)f;
+            var file = (ProsperoFsFile)f;
             file.Write(s);
         }
     }

@@ -8,11 +8,11 @@ using System.Text;
 
 namespace LibProsperoPkg.PKG;
 
-public class PkgWriter : Util.WriterBase
+public class ProsperoCntWriter : Util.WriterBase
 {
-    public PkgWriter(Stream s) : base(true, s) { }
+    public ProsperoCntWriter(Stream s) : base(true, s) { }
 
-    public void WriteBody(Pkg pkg, string contentId, string passcode)
+    public void WriteBody(ProsperoCnt pkg, string contentId, string passcode)
     {
         foreach (var entry in pkg.Entries)
         {
@@ -28,7 +28,7 @@ public class PkgWriter : Util.WriterBase
         }
     }
 
-    public void WriteHeader(in Header hdr)
+    public void WriteHeader(in ProsperoCntHeader hdr)
     {
         s.Position = 0x00;
         Write(Encoding.ASCII.GetBytes(hdr.CNTMagic));
@@ -67,13 +67,13 @@ public class PkgWriter : Util.WriterBase
         s.Position = 0x84;
         Write(hdr.version_hash);
         s.Position = 0x88;
-        Write(hdr.unk_0x88); /* for delta patches only? */
+        Write(hdr.unk_0x88);
         s.Position = 0x8C;
-        Write(hdr.unk_0x8C); /* for delta patches only? */
+        Write(hdr.unk_0x8C);
         s.Position = 0x90;
-        Write(hdr.unk_0x90); /* for delta patches only? */
+        Write(hdr.unk_0x90);
         s.Position = 0x94;
-        Write(hdr.unk_0x94); /* for delta patches only? */
+        Write(hdr.unk_0x94);
         s.Position = 0x98;
         Write((uint)hdr.iro_tag);
         s.Position = 0x9C;
@@ -87,7 +87,6 @@ public class PkgWriter : Util.WriterBase
         s.Position = 0x160;
         Write(hdr.body_digest);
 
-        // TODO: i think these fields are actually members of element of container array
         s.Position = 0x400;
         Write(hdr.unk_0x400);
         s.Position = 0x404;

@@ -103,13 +103,13 @@ public static class ProsperoPfsLayout
         var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        long version = PfsHeader.VersionPs5;
+        long version = ProsperoPfsHeader.VersionPs5;
         log($"Laying out the inner-PFS image (superblock version {version}, block size 0x{options.BlockSize:X})...");
 
         var root = BuildTree(Path.GetFullPath(sourceFolder), options, out int fileCount, out int dirCount);
         log($"Filesystem tree: {dirCount} directories, {fileCount} files.");
 
-        var props = new PfsProperties
+        var props = new ProsperoPfsProperties
         {
             root = root,
             BlockSize = options.BlockSize,
@@ -119,7 +119,7 @@ public static class ProsperoPfsLayout
             FileTime = ToUnixSeconds(options.TimeStamp),
         };
 
-        var builder = new PfsBuilder(props, s => log(s));
+        var builder = new ProsperoPfsBuilder(props, s => log(s));
         long canonicalSize = builder.CalculatePfsSize();
         using (var output = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
         {
@@ -148,7 +148,7 @@ public static class ProsperoPfsLayout
 
     /// <summary>
     /// Proves a freshly built plaintext layout is self-consistent: builds the image from
-    /// <paramref name="sourceFolder"/>, reads it back with <see cref="PfsReader"/> and verifies
+    /// <paramref name="sourceFolder"/>, reads it back with <see cref="ProsperoPfsReader"/> and verifies
     /// every source file is present with byte-identical content (and the superblock version
     /// matches the requested profile). This is the self-check that replaces on-hardware
     /// testing for the layout step.
@@ -164,7 +164,7 @@ public static class ProsperoPfsLayout
 
             using var mmf = MemoryMappedFile.CreateFromFile(image, FileMode.Open, mapName: null, capacity: 0, MemoryMappedFileAccess.Read);
             using var view = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-            var reader = new PfsReader(view);
+            var reader = new ProsperoPfsReader(view);
             if (reader.Header.Version != result.Version)
                 return false;
 
@@ -192,20 +192,20 @@ public static class ProsperoPfsLayout
 
     // Recursively builds an FSDir tree from a reference folder, applying the exclude masks. Names are
     // sorted for deterministic, reproducible output.
-    private static FSDir BuildTree(string sourceFolder, ProsperoPfsLayoutOptions options, out int fileCount, out int dirCount)
+    private static ProsperoFsDir BuildTree(string sourceFolder, ProsperoPfsLayoutOptions options, out int fileCount, out int dirCount)
     {
         int files = 0, dirs = 0;
-        var root = new FSDir();
+        var root = new ProsperoFsDir();
         Populate(root, sourceFolder);
         fileCount = files;
         dirCount = dirs;
         return root;
 
-        void Populate(FSDir node, string path)
+        void Populate(ProsperoFsDir node, string path)
         {
             foreach (var sub in Directory.EnumerateDirectories(path).OrderBy(Path.GetFileName, StringComparer.Ordinal))
             {
-                var child = new FSDir { name = Path.GetFileName(sub), Parent = node };
+                var child = new ProsperoFsDir { name = Path.GetFileName(sub), Parent = node };
                 node.Dirs.Add(child);
                 dirs++;
                 Populate(child, sub);
@@ -215,7 +215,7 @@ public static class ProsperoPfsLayout
                 var name = Path.GetFileName(file);
                 if (IsExcluded(name, options))
                     continue;
-                node.Files.Add(new FSFile(file) { name = name, Parent = node });
+                node.Files.Add(new ProsperoFsFile(file) { name = name, Parent = node });
                 files++;
             }
         }
@@ -246,7 +246,7 @@ public static class ProsperoPfsLayout
         return false;
     }
 
-    private static bool FileMatchesNode(string fullPath, PfsReader.File node)
+    private static bool FileMatchesNode(string fullPath, ProsperoPfsReader.File node)
     {
         var info = new FileInfo(fullPath);
         if (info.Length != node.size)

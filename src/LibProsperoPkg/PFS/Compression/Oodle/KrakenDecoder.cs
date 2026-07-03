@@ -42,7 +42,7 @@ internal enum KrakenDecodeStatus
 /// <summary>
 /// A complete managed Kraken (newLZ) chunk decoder. Decodes one PFS block (one or two internal
 /// newLZ chunks) into a caller-supplied destination buffer. This is the production decoder used by
-/// <see cref="CompressedPfsFile"/> to read both this library's own output and reference-produced blocks.
+/// <see cref="ProsperoCompressedPfsFile"/> to read both this library's own output and reference-produced blocks.
 /// </summary>
 internal static class KrakenDecoder
 {

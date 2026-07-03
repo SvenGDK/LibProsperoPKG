@@ -15,7 +15,7 @@ namespace LibProsperoPkg.PFS;
 /// <summary>
 /// Class allowing parallel readonly access to a PFS archive
 /// </summary>
-public class PfsReader
+public class ProsperoPfsReader
 {
     /// <summary>
     /// Represents a file or directory in a PFS image.
@@ -70,7 +70,7 @@ public class PfsReader
     /// </summary>
     public class File : Node
     {
-        public InodeFlags flags;
+        public ProsperoInodeFlags flags;
         public int blockSize;
         public int[] blocks;
         private IMemoryReader reader;
@@ -90,10 +90,10 @@ public class PfsReader
                 file.SetLength(sz);
                 long pos = 0;
                 var reader = GetView();
-                if (decompress && flags.HasFlag(InodeFlags.compressed))
+                if (decompress && flags.HasFlag(ProsperoInodeFlags.compressed))
                 {
                     sz = compressed_size;
-                    reader = new PFSCReader(reader);
+                    reader = new ProsperoPfscReader(reader);
                 }
                 while (sz > 0)
                 {
@@ -109,17 +109,17 @@ public class PfsReader
 
     // Private state for the PfsReader class
     private IMemoryReader reader;
-    private PfsHeader hdr;
-    private Inode[] dinodes;
+    private ProsperoPfsHeader hdr;
+    private ProsperoInode[] dinodes;
     private Dir root;
     private Dir uroot;
     private byte[] sectorBuf;
     private Stream sectorStream;
 
-    public PfsReader(MemoryMappedViewAccessor r, ulong pfs_flags = 0, byte[] ekpfs = null, byte[] tweak = null, byte[] data = null)
+    public ProsperoPfsReader(MemoryMappedViewAccessor r, ulong pfs_flags = 0, byte[] ekpfs = null, byte[] tweak = null, byte[] data = null)
     : this(new MemoryMappedViewAccessor_(r), pfs_flags, ekpfs, tweak, data)
     { }
-    public PfsReader(IMemoryReader r, ulong pfs_flags = 0, byte[] ekpfs = null, byte[] tweak = null, byte[] data = null)
+    public ProsperoPfsReader(IMemoryReader r, ulong pfs_flags = 0, byte[] ekpfs = null, byte[] tweak = null, byte[] data = null)
     {
         reader = r;
         var buf = new byte[0x400];
@@ -127,34 +127,34 @@ public class PfsReader
 
         using (var ms = new MemoryStream(buf))
         {
-            hdr = PfsHeader.ReadFromStream(ms);
+            hdr = ProsperoPfsHeader.ReadFromStream(ms);
         }
         int dinodeSize;
-        Func<Stream, Inode> dinodeReader;
-        bool is64 = hdr.Mode.HasFlag(PfsMode.Is64Bit);
-        if (hdr.Mode.HasFlag(PfsMode.Signed))
+        Func<Stream, ProsperoInode> dinodeReader;
+        bool is64 = hdr.Mode.HasFlag(ProsperoPfsMode.Is64Bit);
+        if (hdr.Mode.HasFlag(ProsperoPfsMode.Signed))
         {
             // PS5 signed images use 64-bit block pointers in their inodes.
             if (is64)
             {
-                dinodes = new DinodeS64[hdr.DinodeCount];
-                dinodeReader = DinodeS64.ReadFromStream;
-                dinodeSize = (int)DinodeS64.SizeOf; // 0x310
+                dinodes = new ProsperoDinodeS64[hdr.DinodeCount];
+                dinodeReader = ProsperoDinodeS64.ReadFromStream;
+                dinodeSize = (int)ProsperoDinodeS64.SizeOf; // 0x310
             }
             else
             {
-                dinodes = new DinodeS32[hdr.DinodeCount];
-                dinodeReader = DinodeS32.ReadFromStream;
-                dinodeSize = (int)DinodeS32.SizeOf; // 0x2C8
+                dinodes = new ProsperoDinodeS32[hdr.DinodeCount];
+                dinodeReader = ProsperoDinodeS32.ReadFromStream;
+                dinodeSize = (int)ProsperoDinodeS32.SizeOf; // 0x2C8
             }
         }
         else
         {
-            dinodes = new DinodeD32[hdr.DinodeCount];
-            dinodeReader = DinodeD32.ReadFromStream;
-            dinodeSize = (int)DinodeD32.SizeOf; // 0xA8
+            dinodes = new ProsperoDinodeD32[hdr.DinodeCount];
+            dinodeReader = ProsperoDinodeD32.ReadFromStream;
+            dinodeSize = (int)ProsperoDinodeD32.SizeOf; // 0xA8
         }
-        if (hdr.Mode.HasFlag(PfsMode.Encrypted))
+        if (hdr.Mode.HasFlag(ProsperoPfsMode.Encrypted))
         {
             const int XtsSectorSize = 0x1000;
             uint XtsStartSector = hdr.BlockSize / XtsSectorSize;
@@ -163,11 +163,11 @@ public class PfsReader
             if (ekpfs != null)
             {
                 var (tweakKey, dataKey) = Crypto.PfsGenEncKey(ekpfs, hdr.Seed, (pfs_flags & 0x2000000000000000UL) != 0);
-                reader = new XtsDecryptReader(reader, dataKey, tweakKey, XtsStartSector, XtsSectorSize);
+                reader = new ProsperoXtsDecryptReader(reader, dataKey, tweakKey, XtsStartSector, XtsSectorSize);
             }
             else
             {
-                reader = new XtsDecryptReader(reader, data, tweak, XtsStartSector, XtsSectorSize);
+                reader = new ProsperoXtsDecryptReader(reader, data, tweak, XtsStartSector, XtsSectorSize);
             }
         }
         var total = 0;
@@ -192,7 +192,7 @@ public class PfsReader
         uroot.name = "uroot";
     }
 
-    public PfsHeader Header => hdr;
+    public ProsperoPfsHeader Header => hdr;
 
     public File GetFile(string fullPath)
     {
@@ -233,19 +233,19 @@ public class PfsReader
             sectorStream.Position = 0;
             while (position < hdr.BlockSize * (x + 1))
             {
-                var dirent = PfsDirent.ReadFromStream(sectorStream);
+                var dirent = ProsperoPfsDirent.ReadFromStream(sectorStream);
                 if (dirent.EntSize == 0) break;
                 switch (dirent.Type)
                 {
-                    case DirentType.File:
+                    case ProsperoDirentType.File:
                         ret.children.Add(LoadFile(dirent.InodeNumber, ret, dirent.Name));
                         break;
-                    case DirentType.Directory:
+                    case ProsperoDirentType.Directory:
                         postLoad.Add(() => LoadDir(dirent.InodeNumber, ret, dirent.Name));
                         break;
-                    case DirentType.Dot:
+                    case ProsperoDirentType.Dot:
                         break;
-                    case DirentType.DotDot:
+                    case ProsperoDirentType.DotDot:
                         break;
                     default:
                         break;
@@ -265,7 +265,7 @@ public class PfsReader
         int[] blocks = null;
         if (dinodes[dinode].Blocks > 1 && dinodes[dinode].DirectBlocks[1] != -1)
         {
-            if (!hdr.Mode.HasFlag(PfsMode.Signed))
+            if (!hdr.Mode.HasFlag(ProsperoPfsMode.Signed))
             {
                 throw new Exception("Unsigned PFS images probably shouldn't have noncontiguous blocks");
             }

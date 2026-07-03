@@ -16,7 +16,7 @@ namespace LibProsperoPkg.PFS;
 /// PFS mode flags.
 /// </summary>
 [Flags]
-public enum PfsMode : ushort
+public enum ProsperoPfsMode : ushort
 {
     None = 0,
     Signed = 0x1,
@@ -27,19 +27,19 @@ public enum PfsMode : ushort
 /// <summary>
 /// Represents a PFS image suberblock.
 /// </summary>
-public class PfsHeader
+public class ProsperoPfsHeader
 {
     /// <summary>PFS superblock version for PS5 images.</summary>
     public const long VersionPs5 = 2;
 
     public long Version = VersionPs5;
-    public long Magic = 20130315; // 20130315 (march 15 2013???)
+    public long Magic = 20130315; // header magic constant
     public long Id = 0;
     public byte Fmode = 0;
     public byte Clean = 0;
     public byte ReadOnly = 0;
     public byte Rsv = 0;
-    public PfsMode Mode = PfsMode.UnknownFlagAlwaysSet;
+    public ProsperoPfsMode Mode = ProsperoPfsMode.UnknownFlagAlwaysSet;
     public ushort Unk1 = 0;
     public uint BlockSize = 0x10000;
     public uint NBackup = 0;
@@ -50,11 +50,11 @@ public class PfsHeader
     public long DinodeCount = 0;
     public long Ndblock = 0;
     public long DinodeBlockCount = 0;
-    public DinodeS64 InodeBlockSig = new DinodeS64()
+    public ProsperoDinodeS64 InodeBlockSig = new ProsperoDinodeS64()
     {
         Mode = 0,
         Nlink = 1,
-        Flags = InodeFlags.@readonly,
+        Flags = ProsperoInodeFlags.@readonly,
         Size = 0x10000,
         SizeCompressed = 0x10000,
         Blocks = 1,
@@ -95,10 +95,10 @@ public class PfsHeader
         }
     }
 
-    public static PfsHeader ReadFromStream(System.IO.Stream s)
+    public static ProsperoPfsHeader ReadFromStream(System.IO.Stream s)
     {
         var start = s.Position;
-        var hdr = new PfsHeader
+        var hdr = new ProsperoPfsHeader
         {
             Version = s.ReadInt64LE(),
             Magic = s.ReadInt64LE(),
@@ -107,7 +107,7 @@ public class PfsHeader
             Clean = s.ReadUInt8(),
             ReadOnly = s.ReadUInt8(),
             Rsv = s.ReadUInt8(),
-            Mode = (PfsMode)s.ReadUInt16LE(),
+            Mode = (ProsperoPfsMode)s.ReadUInt16LE(),
             Unk1 = s.ReadUInt16LE(),
             BlockSize = s.ReadUInt32LE(),
             NBackup = s.ReadUInt32LE(),
@@ -117,7 +117,7 @@ public class PfsHeader
             DinodeBlockCount = s.ReadInt64LE(),
         };
         s.Position += 8; // skip a 64-bit zero
-        hdr.InodeBlockSig = DinodeS64.ReadFromStream(s);
+        hdr.InodeBlockSig = ProsperoDinodeS64.ReadFromStream(s);
         if (hdr.Version != VersionPs5 || hdr.Magic != 20130315)
         {
             throw new InvalidDataException($"Invalid PFS superblock version ({hdr.Version}) or magic ({hdr.Magic})");
@@ -132,7 +132,7 @@ public class PfsHeader
 /// Inode mode flags including user/group/other permissions.
 /// </summary>
 [Flags]
-public enum InodeMode : ushort
+public enum ProsperoInodeMode : ushort
 {
     o_read = 1,
     o_write = 2,
@@ -151,7 +151,7 @@ public enum InodeMode : ushort
 /// Inode flags for special PFS features
 /// </summary>
 [Flags]
-public enum InodeFlags : uint
+public enum ProsperoInodeFlags : uint
 {
     compressed = 0x1,
     unk1 = 0x2,
@@ -176,14 +176,14 @@ public enum InodeFlags : uint
 /// <summary>
 /// Base class for inodes. Inodes can be signed or unsigned, and 32 or 64 bit.
 /// </summary>
-public abstract class Inode
+public abstract class ProsperoInode
 {
-    public const InodeMode RXOnly =
-      InodeMode.o_read | InodeMode.o_execute |
-      InodeMode.g_read | InodeMode.g_execute |
-      InodeMode.u_read | InodeMode.u_execute;
+    public const ProsperoInodeMode RXOnly =
+      ProsperoInodeMode.o_read | ProsperoInodeMode.o_execute |
+      ProsperoInodeMode.g_read | ProsperoInodeMode.g_execute |
+      ProsperoInodeMode.u_read | ProsperoInodeMode.u_execute;
 
-    public Inode()
+    public ProsperoInode()
     {
         SetTime((long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds);
     }
@@ -194,13 +194,13 @@ public abstract class Inode
     /// <summary>
     /// Default is 555 octal.
     /// </summary>
-    public InodeMode Mode = (InodeMode)0x16D;
+    public ProsperoInodeMode Mode = (ProsperoInodeMode)0x16D;
     /// <summary>
     /// Number of links to this file in the filesystem.
     /// 1 for regular files, 1 + 1 for every subdirectory for dirs.
     /// </summary>
     public ushort Nlink;
-    public InodeFlags Flags;
+    public ProsperoInodeFlags Flags;
     public long Size;
     public long SizeCompressed;
     public long Time1_sec;
@@ -222,7 +222,7 @@ public abstract class Inode
 
     public abstract void SetDirectBlock(int idx, int block);
     public abstract void WriteToStream(Stream s);
-    public Inode SetTime(long time)
+    public ProsperoInode SetTime(long time)
     {
         Time1_sec = time;
         Time2_sec = time;
@@ -235,7 +235,7 @@ public abstract class Inode
 /// <summary>
 /// 32-bit unsigned inodes
 /// </summary>
-public class DinodeD32 : Inode
+public class ProsperoDinodeD32 : ProsperoInode
 {
     public const long SizeOf = 0xA8;
     public int[] db = new int[12];
@@ -273,13 +273,13 @@ public class DinodeD32 : Inode
         foreach (var x in ib) s.WriteLE(x);
     }
 
-    public static DinodeD32 ReadFromStream(Stream s)
+    public static ProsperoDinodeD32 ReadFromStream(Stream s)
     {
-        var di = new DinodeD32
+        var di = new ProsperoDinodeD32
         {
-            Mode = (InodeMode)s.ReadUInt16LE(),
+            Mode = (ProsperoInodeMode)s.ReadUInt16LE(),
             Nlink = s.ReadUInt16LE(),
-            Flags = (InodeFlags)s.ReadUInt32LE(),
+            Flags = (ProsperoInodeFlags)s.ReadUInt32LE(),
             Size = s.ReadInt64LE(),
             SizeCompressed = s.ReadInt64LE(),
             Time1_sec = s.ReadInt64LE(),
@@ -304,7 +304,7 @@ public class DinodeD32 : Inode
 /// <summary>
 /// Data structure used in signed 32 bit PFS images
 /// </summary>
-public struct block_sig
+public struct ProsperoBlockSig
 {
     public byte[] sig;
     public int block;
@@ -312,7 +312,7 @@ public struct block_sig
 /// <summary>
 /// Data structure used in signed 64 bit PFS images, and in any signed PFS header.
 /// </summary>
-public struct block_sig64
+public struct ProsperoBlockSig64
 {
     public byte[] sig;
     public long block;
@@ -320,21 +320,21 @@ public struct block_sig64
 /// <summary>
 /// Signed 32-bit inode
 /// </summary>
-public class DinodeS32 : Inode
+public class ProsperoDinodeS32 : ProsperoInode
 {
     public const long SizeOf = 0x2C8;
-    public DinodeS32()
+    public ProsperoDinodeS32()
     {
-        db = new block_sig[12];
-        ib = new block_sig[5];
+        db = new ProsperoBlockSig[12];
+        ib = new ProsperoBlockSig[5];
         for (var i = 0; i < 12; i++)
         {
             db[i].sig = new byte[32];
             if (i < 5) ib[i].sig = new byte[32];
         }
     }
-    public block_sig[] db;
-    public block_sig[] ib;
+    public ProsperoBlockSig[] db;
+    public ProsperoBlockSig[] ib;
     public override int StartBlock => db[0].block;
     public override IList<int> DirectBlocks => db.Select(d => d.block).ToList();
     public override IList<int> IndirectBlocks => ib.Select(d => d.block).ToList();
@@ -374,13 +374,13 @@ public class DinodeS32 : Inode
             s.WriteLE(x.block);
         }
     }
-    public static DinodeS32 ReadFromStream(Stream s)
+    public static ProsperoDinodeS32 ReadFromStream(Stream s)
     {
-        var di = new DinodeS32
+        var di = new ProsperoDinodeS32
         {
-            Mode = (InodeMode)s.ReadUInt16LE(),
+            Mode = (ProsperoInodeMode)s.ReadUInt16LE(),
             Nlink = s.ReadUInt16LE(),
-            Flags = (InodeFlags)s.ReadUInt32LE(),
+            Flags = (ProsperoInodeFlags)s.ReadUInt32LE(),
             Size = s.ReadInt64LE(),
             SizeCompressed = s.ReadInt64LE(),
             Time1_sec = s.ReadInt64LE(),
@@ -396,15 +396,15 @@ public class DinodeS32 : Inode
             Unk1 = s.ReadUInt64LE(),
             Unk2 = s.ReadUInt64LE(),
             Blocks = s.ReadUInt32LE(),
-            db = new block_sig[12],
-            ib = new block_sig[5],
+            db = new ProsperoBlockSig[12],
+            ib = new ProsperoBlockSig[5],
         };
-        for (var i = 0; i < 12; i++) di.db[i] = new block_sig
+        for (var i = 0; i < 12; i++) di.db[i] = new ProsperoBlockSig
         {
             sig = s.ReadBytes(32),
             block = s.ReadInt32LE()
         };
-        for (var i = 0; i < 5; i++) di.ib[i] = new block_sig
+        for (var i = 0; i < 5; i++) di.ib[i] = new ProsperoBlockSig
         {
             sig = s.ReadBytes(32),
             block = s.ReadInt32LE()
@@ -416,21 +416,21 @@ public class DinodeS32 : Inode
 /// <summary>
 /// Signed 64-bit inode
 /// </summary>
-public class DinodeS64 : Inode
+public class ProsperoDinodeS64 : ProsperoInode
 {
     public const long SizeOf = 0x310;
-    public DinodeS64()
+    public ProsperoDinodeS64()
     {
-        db = new block_sig64[12];
-        ib = new block_sig64[5];
+        db = new ProsperoBlockSig64[12];
+        ib = new ProsperoBlockSig64[5];
         for (var i = 0; i < 12; i++)
         {
             db[i].sig = new byte[32];
             if (i < 5) ib[i].sig = new byte[32];
         }
     }
-    public block_sig64[] db;
-    public block_sig64[] ib;
+    public ProsperoBlockSig64[] db;
+    public ProsperoBlockSig64[] ib;
     public override int StartBlock => (int)db[0].block;
     public override IList<int> DirectBlocks => db.Select(d => (int)d.block).ToList();
     public override IList<int> IndirectBlocks => ib.Select(d => (int)d.block).ToList();
@@ -471,13 +471,13 @@ public class DinodeS64 : Inode
             s.WriteLE(x.block);
         }
     }
-    public static DinodeS64 ReadFromStream(Stream s)
+    public static ProsperoDinodeS64 ReadFromStream(Stream s)
     {
-        var di = new DinodeS64
+        var di = new ProsperoDinodeS64
         {
-            Mode = (InodeMode)s.ReadUInt16LE(),
+            Mode = (ProsperoInodeMode)s.ReadUInt16LE(),
             Nlink = s.ReadUInt16LE(),
-            Flags = (InodeFlags)s.ReadUInt32LE(),
+            Flags = (ProsperoInodeFlags)s.ReadUInt32LE(),
             Size = s.ReadInt64LE(),
             SizeCompressed = s.ReadInt64LE(),
             Time1_sec = s.ReadInt64LE(),
@@ -493,15 +493,15 @@ public class DinodeS64 : Inode
             Unk1 = s.ReadUInt64LE(),
             Unk2 = s.ReadUInt64LE(),
             Blocks = (uint)s.ReadInt64LE(),
-            db = new block_sig64[12],
-            ib = new block_sig64[5],
+            db = new ProsperoBlockSig64[12],
+            ib = new ProsperoBlockSig64[5],
         };
-        for (var i = 0; i < 12; i++) di.db[i] = new block_sig64
+        for (var i = 0; i < 12; i++) di.db[i] = new ProsperoBlockSig64
         {
             sig = s.ReadBytes(32),
             block = s.ReadInt64LE()
         };
-        for (var i = 0; i < 5; i++) di.ib[i] = new block_sig64
+        for (var i = 0; i < 5; i++) di.ib[i] = new ProsperoBlockSig64
         {
             sig = s.ReadBytes(32),
             block = s.ReadInt64LE()
@@ -513,12 +513,12 @@ public class DinodeS64 : Inode
 /// <summary>
 /// Represents a PFS dirent. Directories are stored ondisk as blocks of dirents.
 /// </summary>
-public class PfsDirent
+public class ProsperoPfsDirent
 {
     public static int MaxSize = 280;
 
     public uint InodeNumber;
-    public DirentType Type;
+    public ProsperoDirentType Type;
     public int NameLength;
     public int EntSize;
 
@@ -555,13 +555,13 @@ public class PfsDirent
         s.Write(new byte[remaining], 0, remaining);
     }
 
-    public static PfsDirent ReadFromStream(Stream s)
+    public static ProsperoPfsDirent ReadFromStream(Stream s)
     {
         var pos = s.Position;
-        var d = new PfsDirent
+        var d = new ProsperoPfsDirent
         {
             InodeNumber = s.ReadUInt32LE(),
-            Type = (DirentType)s.ReadInt32LE(),
+            Type = (ProsperoDirentType)s.ReadInt32LE(),
             NameLength = s.ReadInt32LE(),
             EntSize = s.ReadInt32LE(),
         };
@@ -573,7 +573,7 @@ public class PfsDirent
 /// <summary>
 /// Describes the nature of the dirent
 /// </summary>
-public enum DirentType : int
+public enum ProsperoDirentType : int
 {
     /// <summary>
     /// A regular file

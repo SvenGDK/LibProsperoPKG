@@ -13,12 +13,12 @@ namespace LibProsperoPkg.PFS;
 /// <summary>
 /// Base class for directories and files in a PFS image builder.
 /// </summary>
-public abstract class FSNode
+public abstract class ProsperoFsNode
 {
     /// <summary>
     /// The parent directory of this node. This should only be null for the root directory.
     /// </summary>
-    public FSDir Parent = null;
+    public ProsperoFsDir Parent = null;
 
     /// <summary>
     /// The name of this node.
@@ -28,7 +28,7 @@ public abstract class FSNode
     /// <summary>
     /// The inode describing this node.
     /// </summary>
-    public Inode ino;
+    public ProsperoInode ino;
 
     /// <summary>
     /// The actual size on disk of this node (i.e. the filesize or size of the dirent block)
@@ -56,21 +56,21 @@ public abstract class FSNode
 /// <summary>
 /// Represents a directory in a PFS image builder.
 /// </summary>
-public class FSDir : FSNode
+public class ProsperoFsDir : ProsperoFsNode
 {
     /// <summary>
     /// The directories in this directory.
     /// </summary>
-    public List<FSDir> Dirs = new List<FSDir>();
+    public List<ProsperoFsDir> Dirs = new List<ProsperoFsDir>();
     /// <summary>
     /// The files in this directory.
     /// </summary>
-    public List<FSFile> Files = new List<FSFile>();
+    public List<ProsperoFsFile> Files = new List<ProsperoFsFile>();
 
     /// <summary>
     /// The dirents describing the nodes in this directory.
     /// </summary>
-    public List<PfsDirent> Dirents = new List<PfsDirent>();
+    public List<ProsperoPfsDirent> Dirents = new List<ProsperoPfsDirent>();
 
     public override long Size
     {
@@ -81,9 +81,9 @@ public class FSDir : FSNode
     /// Gets all the dirs and files in this directory and subdirectories.
     /// </summary>
     /// <returns>all the dirs and files in this directory and subdirectories</returns>
-    public List<FSNode> GetAllChildren()
+    public List<ProsperoFsNode> GetAllChildren()
     {
-        var ret = new List<FSNode>(GetAllChildrenDirs());
+        var ret = new List<ProsperoFsNode>(GetAllChildrenDirs());
         ret.AddRange(GetAllChildrenFiles());
         return ret;
     }
@@ -92,9 +92,9 @@ public class FSDir : FSNode
     /// Gets all the dirs in this directory and subdirectories.
     /// </summary>
     /// <returns>all the dirs in this directory and subdirectories</returns>
-    public List<FSDir> GetAllChildrenDirs()
+    public List<ProsperoFsDir> GetAllChildrenDirs()
     {
-        var ret = new List<FSDir>(Dirs);
+        var ret = new List<ProsperoFsDir>(Dirs);
         foreach (var dir in Dirs)
             foreach (var child in dir.GetAllChildrenDirs())
                 ret.Add(child);
@@ -105,9 +105,9 @@ public class FSDir : FSNode
     /// Gets all the files in this directory and subdirectories.
     /// </summary>
     /// <returns>all the files in this directory and subdirectories</returns>
-    public List<FSFile> GetAllChildrenFiles()
+    public List<ProsperoFsFile> GetAllChildrenFiles()
     {
-        var ret = new List<FSFile>(Files);
+        var ret = new List<ProsperoFsFile>(Files);
         foreach (var dir in GetAllChildrenDirs())
             foreach (var f in dir.Files)
                 ret.Add(f);
@@ -122,7 +122,7 @@ public class FSDir : FSNode
     /// </summary>
     /// <param name="path">Relative path to the desired file</param>
     /// <returns>The file, or null if it can't be found.</returns>
-    public FSFile GetFile(string path)
+    public ProsperoFsFile GetFile(string path)
     {
         var breadcrumbs = path.Split('/');
         if (breadcrumbs.Length == 1)
@@ -137,14 +137,14 @@ public class FSDir : FSNode
 /// <summary>
 /// Represents a File in a PFS image builder.
 /// </summary>
-public class FSFile : FSNode
+public class ProsperoFsFile : ProsperoFsNode
 {
     /// <summary>
     /// Creates an FSFile from a real on-disk file.
     /// You need to set the name, inode, and parent.
     /// </summary>
     /// <param name="origFileName">Real path to the file.</param>
-    public FSFile(string origFileName)
+    public ProsperoFsFile(string origFileName)
     {
         Write = s => { using (var f = File.OpenRead(origFileName)) f.CopyTo(s); };
         Size = new FileInfo(origFileName).Length;
@@ -157,9 +157,9 @@ public class FSFile : FSNode
     /// You need to set the inode and parent.
     /// </summary>
     /// <param name="b">the PfsBuilder that this file represents</param>
-    public FSFile(PfsBuilder b)
+    public ProsperoFsFile(ProsperoPfsBuilder b)
     {
-        var pfsc = new PFSCWriter(b.CalculatePfsSize());
+        var pfsc = new ProsperoPfscWriter(b.CalculatePfsSize());
         Write = s =>
         {
             pfsc.WritePFSCHeader(s);
@@ -178,7 +178,7 @@ public class FSFile : FSNode
     /// <param name="writer">A function that takes a Stream and writes this file's data to it.</param>
     /// <param name="name">This file's name</param>
     /// <param name="size">The total size in bytes that will be written by writer</param>
-    public FSFile(Action<Stream> writer, string name, long size)
+    public ProsperoFsFile(Action<Stream> writer, string name, long size)
     {
         Write = writer;
         this.name = name;
@@ -189,7 +189,7 @@ public class FSFile : FSNode
     /// <summary>
     /// Constructs an FSFile for a pre-rendered payload whose on-disk size differs from its
     /// logical (decompressed) size — e.g. a genuinely PFSC-compressed pfs_image.dat. This is
-    /// the explicit-size counterpart of <see cref="FSFile(PfsBuilder)"/>, which only emits a
+    /// the explicit-size counterpart of <see cref="ProsperoFsFile(ProsperoPfsBuilder)"/>, which only emits a
     /// PFSC header over uncompressed blocks.
     /// </summary>
     /// <param name="writer">A function that writes exactly <paramref name="size"/> bytes (the on-disk image).</param>
@@ -197,7 +197,7 @@ public class FSFile : FSNode
     /// <param name="size">The on-disk byte count <paramref name="writer"/> produces (drives the inode block table).</param>
     /// <param name="compressedSize">The logical/decompressed size recorded in the inode (SizeCompressed).</param>
     /// <param name="compress">Set true to mark the inode as PFSC-compressed.</param>
-    public FSFile(Action<Stream> writer, string name, long size, long compressedSize, bool compress)
+    public ProsperoFsFile(Action<Stream> writer, string name, long size, long compressedSize, bool compress)
     {
         Write = writer;
         this.name = name;

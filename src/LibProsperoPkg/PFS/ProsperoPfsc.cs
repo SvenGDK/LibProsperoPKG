@@ -28,7 +28,7 @@ public sealed class ProsperoPfscOptions
     /// <summary>Files smaller than this are stored raw. Default 0.</summary>
     public long MinCompressSize { get; set; } = 0;
 
-    internal PfscEncoderOptions ToEncoderOptions() => new()
+    internal ProsperoPfscEncoderOptions ToEncoderOptions() => new()
     {
         BlockSize = BlockSize,
         CompressionLevel = CompressionLevel,
@@ -87,12 +87,12 @@ public static class ProsperoPfsc
 
         log($"Packing {Path.GetFileName(inputImagePath)} ({length:N0} bytes) into a PFSC image...");
 
-        PfscEncodeStats stats;
+        ProsperoPfscEncodeStats stats;
         using (var input = File.OpenRead(inputImagePath))
         using (var output = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
         {
             long reported = -1;
-            stats = PfscEncoder.Encode(input, length, output, options.ToEncoderOptions(), produced =>
+            stats = ProsperoPfscEncoder.Encode(input, length, output, options.ToEncoderOptions(), produced =>
             {
                 // Throttle progress to whole-percent updates.
                 long pct = length == 0 ? 100 : produced * 100 / length;
@@ -137,7 +137,7 @@ public static class ProsperoPfsc
         long written = 0;
         using (var mmf = MemoryMappedFile.CreateFromFile(pfscPath, FileMode.Open, mapName: null, capacity: 0, MemoryMappedFileAccess.Read))
         using (var va = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
-        using (var reader = new PFSCReader(va))
+        using (var reader = new ProsperoPfscReader(va))
         using (var output = File.Create(outputPath))
         {
             long total = reader.DataLength;
