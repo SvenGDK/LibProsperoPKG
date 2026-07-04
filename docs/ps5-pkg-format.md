@@ -1,7 +1,7 @@
 # PS5 Package Format — Technical Write-up
 
 This document describes the structure of a PS5 package and the end-to-end
-process LibProsperoPkg follows to create one. It is a technical reference for developers working
+process LibProsperoPkg follows to create one. It is a technical write-up for developers working
 with the format; the offsets and field names below match the library's own reader, builder and
 finalizer.
 
@@ -111,7 +111,7 @@ nested images:
 
 - The **inner image** holds the actual file tree (`uroot`): `sce_sys/`, `eboot.bin`, data, etc.
 - The **outer image** wraps the inner image (optionally compressed) plus the metadata, and is
-  the segment that the finalized image references.
+  the segment the finalized image points to.
 
 ### 3.1 Layout
 
@@ -198,8 +198,8 @@ verification and accepts the debug variant.
 The remainder of the FIH region holds the finalized digests. The `game-digest` (`0x30`/`0x70`/`0xD0`)
 is `SHA3-256` of the plaintext outer superblock, and the embedded CNT carries the package-digest
 self-seal, the CNT-header rollup, the per-entry digest table and the GeneralDigests block
-(content/header/system/param/playgo/target). LibProsperoPkg reproduces **all of these byte-exact**
-(verified against the debug packages in the test corpus). The FIH `0xB0` slot — `SHA3-256` of the **uncompressed
+(content/header/system/param/playgo/target). LibProsperoPkg reproduces **all of these byte-exact**.
+The FIH `0xB0` slot — `SHA3-256` of the **uncompressed
 inner PFS image** at its plain size — is implemented and threaded through
 the build path; like every digest its value bit-matches a specific pre-existing package only once the inner
 Kraken encoder is byte-identical, but the formula is exact and gated self-consistent.
@@ -207,8 +207,8 @@ See [implementation-status.md](implementation-status.md).
 
 ### 5.4 The SI segment
 
-The image ends with a trailing **STORED ZIP** archive of install-time metadata. Verified
-member order against the debug packages in the test corpus (every member uncompressed / `STORED`):
+The image ends with a trailing **STORED ZIP** archive of install-time metadata (every member
+uncompressed / `STORED`), in this member order:
 
 | Path | Notes |
 |---|---|
@@ -227,9 +227,8 @@ during the CNT build, and `ProsperoFihBuilder.BuildFromCnt` appends the ZIP prod
 `ProsperoSiArchive.BuildDebugSiSegment` after the embedded CNT. `BuildMembers` → `WriteZip` reproduce the
 member order, paths, `STORED` framing and `naps_meta_30x` identity exactly; the `playgo-chunk.crc` is
 recomputed from the finalized mount image (CRC-32C). The `naps_meta_300` `R` is the inner-image
-data-region size and is legitimately `0` when the inner image fits in one 0x10000 block (tiny synthetic
-inputs); real multi-MB game/app content yields the expected non-zero value (e.g. `0x40000` for the
-Downloads sample in the test corpus).
+data-region size and is legitimately `0` when the inner image fits in one 0x10000 block (tiny
+inputs); real multi-MB application content yields the expected non-zero value (for example `0x40000`).
 
 `pfsimage.xml` is reproduced faithfully through its `<config>`, `<digests>`, `<params>`,
 `<container>`, `<mount-image>` and `<entries>` sections — including the toolchain constants
@@ -306,7 +305,7 @@ stream. CNT-entry placement for each file is described below.
 
 | File | Location | Description |
 |---|---|---|
-| `imagedigs.dat` | CNT entry `0x040A` (unnamed) | `N × 32` byte digest table, one entry per 64 KiB **outer** image block (e.g. 11 blocks = 352 B). Computed end-to-end: the outer-PFS builder captures the per-block descriptor digests of the finalized outer image (`CaptureImageDigests`), and the builder patches them into the entry after `WriteImage`. Each stored 32-byte digest is written in byte-reversed order. Because it digests the outer image but does **not** live in it, there is no self-reference / fixpoint — the build is single-pass and the entry size (`outerBlocks × 32`) is known up front. Self-consistent with this encoder's actual block content (byte-identity to a specific pre-existing package still requires byte-identical Kraken). |
+| `imagedigs.dat` | CNT entry `0x040A` (unnamed) | `N × 32` byte digest table, one entry per 64 KiB **outer** image block (e.g. 11 blocks = 352 B). Computed end-to-end: the outer-PFS builder captures the per-block descriptor digests of the finalized outer image (`CaptureImageDigests`), and the builder patches them into the entry after `WriteImage`. Each stored 32-byte digest is written in byte-reversed order. Because it digests the outer image but does **not** live in it, there is no self-dependency / fixpoint — the build is single-pass and the entry size (`outerBlocks × 32`) is known up front. Self-consistent with this encoder's actual block content (byte-identity to a specific pre-existing package still requires byte-identical Kraken). |
 | `playgo-chunk.dat` | CNT entry `0x1001` **and** `sce_suppl/common/etc` (SI) | 416-byte PlayGo chunk descriptor. The two copies are **byte-identical**. Generated by `PlayGo.ProsperoPlayGo.BuildChunkDat`. |
 | `playgo-hash-table.dat` | CNT entry `0x2010` | PlayGo file hash table; `0x38 + n × 8` bytes (n = `ficmCount / 2`). A content-independent constant structure (version=1, `\x7FFLT` magic at `0x18`, fixed 16-byte prefix + `n × 8` constant table entries). `PlayGo.ProsperoPlayGo.BuildHashTable`. |
 | `playgo-ficm.dat` | CNT entry `0x2011` | PlayGo file-in-chunk map; 16-byte header + `fileCount` bytes. `PlayGo.ProsperoPlayGo.BuildFicm`. |
@@ -351,7 +350,7 @@ is a plain SHA-1 over the whole file with the digest field zeroed, so it can be 
 without keys.
 
 `Content.ProsperoUcp` reads, builds (from entries or from a directory), validates, verifies, and
-repairs UCP files; the round-trip is byte-exact on the reference samples. During a build,
+repairs UCP files; the round-trip is byte-exact. During a build,
 `ProsperoPkgBuilder.EnsureUcpArchives` repairs a stale digest on a supplied archive but never
 synthesizes its contents.
 
@@ -384,4 +383,74 @@ converted file is written in place for the duration of the build and restored to
 once packing completes, so the resulting fake package embeds fake-self modules while the source
 folder is left unmodified. Per-module conversion settings come from `FselfOptions` when supplied.
 
-> **Reproducibility boundary.** The keyed digests (`content/game/header/system/param/package/body/sblock/fixed-info` digests, the superblock `icv`, the FIH finalization table) require console finalization material the library does not have. LibProsperoPkg computes the SHA3-256 CNT-region and entry digests and derives `imagedigs.dat` from its own finalized outer image; the remaining console-only finalization fields are emitted as structurally valid placeholders (reported as warnings). Byte-identity to a specific reference `.pkg` additionally requires the Kraken inner encoder to produce identical compressed output.
+> **Reproducibility boundary.** The keyed digests (`content/game/header/system/param/package/body/sblock/fixed-info` digests, the superblock `icv`, the FIH finalization table) require console finalization material the library does not have. LibProsperoPkg computes the SHA3-256 CNT-region and entry digests and derives `imagedigs.dat` from its own finalized outer image; the remaining console-only finalization fields are emitted as structurally valid placeholders (reported as warnings). Byte-identity to a specific pre-existing `.pkg` additionally requires the Kraken inner encoder to produce identical compressed output.
+
+---
+
+## 9. License file (`rif`)
+
+A `rif` is a fixed **0x400-byte** record with a big-endian header. Multiple sub-title licences are
+concatenated with no container header, so a whole-file size is always a positive multiple of `0x400`
+(one record = single content; `N × 0x400` = a set). Layout of one record:
+
+| Offset | Size | Field |
+|---|---|---|
+| `0x00` | 4 | Magic `52 49 46 00` (`RIF\0`). |
+| `0x04` | 2 | Version, big-endian (`0x0002`). |
+| `0x06` | 2 | Flags, big-endian (`0xFFFF` observed). |
+| `0x14` | 4 | Format tag `51 50 61 43` (`QPaC`). |
+| `0x18` | 8 | Expiry / timestamp, big-endian (`0x7FFFFFFFFFFFFFFF` = non-expiring). |
+| `0x20` | `0x24` | Content-id (36 chars, NUL-trimmed). |
+| `0x50` | 8 | Format descriptor (`01 04 00 10 00 20 00 03`). |
+| `0x60` | 8 | Entry-count / flag, big-endian (`1` observed). |
+| `0x240` | `0x1C0` | Encrypted key blob (448 bytes). |
+
+`License.ProsperoRif` reads/writes a single record; `License.ProsperoRifSet` handles the
+concatenated multi-content case (per-record content-id, service label, `has_app`, `n_ac`, whole-file
+size). `License.ProsperoEntitlementKey` carries the 16-byte content key and enforces the
+passcode-XOR-content-key selection rule.
+
+> **Reproducibility boundary.** The 448-byte key blob at `0x240` is encrypted with per-device
+> material. The header is fully readable and reproducible; the key blob is carried and validated,
+> never forged. See `Reversed/rif-format.md` and `Reversed/retail-drm-material.md`.
+
+---
+
+## 10. Split disc-backup packages (`app_0.pkg` + `app_sc.pkg`)
+
+A disc backup stores one finalized image split across several piece files, described by an
+`app.json` manifest that sits beside them:
+
+| File | Role |
+|---|---|
+| `app.json` | Manifest: reassembled `originalFileSize`, the SHA-256 package `digest`, an ordered `pieces[]` list (each with a `url` and `fileSize`), and the `playgo-chunk.crc` path. |
+| `app_0.pkg`, `app_sc.pkg`, ... | The ordered pieces. Concatenated in manifest order they reproduce the original finalized `.pkg` byte-for-byte. |
+| `app.crc` | PlayGo chunk CRC file for the reassembled image. |
+
+`DiscBackup.ProsperoDiscBackup.Open(path)` parses the manifest and resolves each piece relative to
+its directory. `OpenPackageStream` exposes the reassembled image as one seekable stream without
+writing it to disk; `ReassembleTo` writes the joined `.pkg`; `VerifyPackageDigest` checks the joined
+stream against the manifest SHA-256; `ReadPackage` / `ReadContentInfo` parse the reassembled image
+directly. The embedded CNT of a split retail image lives in the `app_sc.pkg` tail, so content-info
+resolves only after reassembly. See `Reversed/disc-backup-format.md`.
+
+---
+
+## 11. Reading and extracting a package
+
+`PKG.ProsperoPackageExtractor` is the read side of the creation pipeline:
+
+- `Inspect(path)` reports package type, whether the outer image is encrypted, the outer offset/size,
+  and whether a supplied key is required — without decrypting.
+- `ListFiles(...)` walks the inner PFS directory.
+- `Extract(...)` unpacks to a directory. A debug/passcode image is opened from public inputs: the
+  EKPFS is `ComputeKeys(content-id, passcode, index = 1)` (SHA-256 primary, SHA3-256 fallback), and
+  the AES-XTS counter starts at `block_size / 0x1000` so the `0x10000` superblock is plaintext.
+
+`PKG.ProsperoExtractionKey` materializes those EKPFS candidates from a passcode/content-id or accepts
+a supplied 32-byte EKPFS. `PFS.ProsperoPfsExtractor` is the reusable single-image walker underneath.
+
+> **Reproducibility boundary.** A finalized retail outer image is encrypted at block 0 with an image
+> key delivered through the entitlement/kernel path; it is not derivable from public inputs and not
+> brute-forceable. `Inspect` flags such an image as requiring a supplied key and `Extract` refuses
+> cleanly rather than emitting corrupt output. See `Reversed/pkg-decryption.md`.

@@ -4,7 +4,7 @@
 // SHA3-256 digest helpers for the PS5 PFSv3 compression file format.
 //
 // The PFS compression container hashes every block (and the whole file) with SHA3-256, NOT SHA-256.
-// Validated against reference output: each block hash in the container's id=4 section equals
+// Layout: each block hash in the container's id=4 section equals
 // SHA3-256(uncompressed block bytes), and the header's "File Digest (SHA3)" at offset 0x28
 // is a SHA3-256 value.
 #nullable enable
@@ -104,7 +104,7 @@ public static class ProsperoPfsDigest
     /// The preimage is <c>header32 || shuffleSection || boundarySection || blockHashSection</c>, where
     /// <c>header32</c> is a 32-byte, 8-byte-aligned little-endian struct:
     /// <c>{u32 1; u32 blockSize; u32 encodeParam0C; u32 0 (pad); u64 encodeParam10; u64 uncompressedSize}</c>.
-    /// This layout was validated byte-exact against independent encoder outputs
+    /// This layout holds byte-exact for independent encoder outputs
     /// (compressed and stored blocks).
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="headerParams"/> is not 24 bytes.</exception>

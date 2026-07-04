@@ -43,7 +43,7 @@ internal sealed class ProsperoSiBuildInputs
 
     /// <summary>
     /// Block-aligned stored size of the inner <c>pfs_image.dat</c> (<c>alignUp(storedSize, 0x10000)</c>) — the
-    /// value the FIH records at <see cref="ProsperoPkgLayout.FihInnerImageSizeField"/> (0xA0) in the reference
+    /// value the FIH records at <see cref="ProsperoPkgLayout.FihInnerImageSizeField"/> (0xA0) in the
     /// data-first layout. The SI's <c>naps_meta_300/301/302/308.dat</c> records derive from it as
     /// <c>R = InnerImageSize - 0x10000</c> via <see cref="ProsperoNapsMeta.BuildMeta300FromInnerImageSize"/>.
     /// It is captured here at build time because our superblock-first outer PFS leaves FIH[0xA0] at 0
@@ -138,7 +138,7 @@ public sealed class ProsperoPkgBuildProperties
 /// </summary>
 public static class ProsperoPkgBuilder
 {
-    // PS5 header constants confirmed against reference packages.
+    // PS5 header constants.
     private const uint DrmTypePs5 = 0x10;          // CNT header @0x70.
     private const uint ContentTypeGd = 0x20;       // CNT header @0x74 (game data).
     private const uint ContentTypeAc = 0x21;       // additional content, with data.
@@ -242,7 +242,7 @@ public static class ProsperoPkgBuilder
             log("Preparing PS5 inner PFS (superblock version 2)...");
             var innerRoot = BuildInnerTree(sourceFolder, props.Passcode);
             // PlayGo file/inode count of the inner image: drives playgo-ficm.dat (count) and
-            // playgo-hash-table.dat (count / 2), matching reference samples. The total
+            // playgo-hash-table.dat (count / 2), self-consistent. The total
             // inner content size drives the playgo-chunk.dat size words (self-consistent layout).
             var innerFiles = innerRoot.GetAllChildrenFiles();
             uint playgoFileCount = (uint)Math.Min(innerFiles.Count, 0x100000);
@@ -252,8 +252,7 @@ public static class ProsperoPkgBuilder
                 root = innerRoot,
                 BlockSize = BlockSize,
                 // PS5 packages size the inner PFS to their content; no artificial block floor is used.
-                // Reference PS5 system/app packages are well under 1MiB (e.g. NPXS41139 has a
-                // 0xB0000 / 704KiB shared PFS image).
+                // PS5 system/app packages are well under 1MiB (e.g. ~704KiB shared PFS images).
                 MinBlocks = 0,
                 Version = ProsperoPfsHeader.VersionPs5,
                 Encrypt = false,
@@ -304,7 +303,7 @@ public static class ProsperoPkgBuilder
                 outerRoot.Files.Add(innerFile);
 
                 // The block-aligned stored size of pfs_image.dat is what the FIH records at 0xA0 in the
-                // reference data-first layout and is the sole input to the SI's naps_meta_300 record
+                // data-first layout and is the sole input to the SI's naps_meta_300 record
                 // (R = alignUp(storedSize) - 0x10000). Our outer PFS is superblock-first, so FIH[0xA0] is
                 // left 0; capture the value here where the stored inner-file size is known.
                 long innerImageAlignedSize =
@@ -701,13 +700,13 @@ public static class ProsperoPkgBuilder
         foreach (var media in CollectMediaEntries(sourceFolder))
             pkg.Entries.Add(media);
 
-        // PS5 image-digest + PlayGo descriptor CNT entries. Reference package layout shows
-        // these are OUTER CNT entries — imagedigs.dat
+        // PS5 image-digest + PlayGo descriptor CNT entries. The package layout has
+        // these as OUTER CNT entries — imagedigs.dat
         // (id 0x040A, UNNAMED), playgo-chunk.dat (0x1001), playgo-hash-table.dat (0x2010) and
         // playgo-ficm.dat (0x2011) — NOT inner-PFS files. imagedigs is laid out as a placeholder sized
         // to the outer block count and filled with the captured per-block digests after the image is
         // written. The PlayGo file/inode count drives playgo-ficm.dat (count) and playgo-hash-table.dat
-        // (count / 2), matching reference samples. Any entry the source folder already
+        // (count / 2), self-consistent. Any entry the source folder already
         // supplied (e.g. a hand-authored playgo-chunk.dat) is respected and not regenerated.
         foreach (var (id, name, data) in new (uint Id, string? Name, byte[] Data)[]
         {
@@ -824,8 +823,7 @@ public static class ProsperoPkgBuilder
         // Package-digest (the CNT self-seal at +0xFE0): PS5 uses SHA3-256(CNT[0:0xFE0]), NOT SHA-256.
         // The preimage spans 0x410 (pfs_image_offset); BuildFromCnt rewrites that field to the FIH-relative
         // 0x10000 when it finalizes the image, so force 0x10000 here too — otherwise the stored seal would be
-        // over the physical offset and would not match a verifier reading the finalized package. Validated
-        // byte-exact against reference output (this is the value reported as "Package Digest").
+        // over the physical offset and would not match a verifier reading the finalized package.
         s.Position = 0;
         byte[] cntHead = new byte[ProsperoImageDigests.PackageDigestRegionSize];
         s.ReadExactly(cntHead);
@@ -888,6 +886,8 @@ public static class ProsperoPkgBuilder
             DrmType = "none",
             ApplicationDrmType = pj.ApplicationDrmType,
             ContentType = ContentTypeString(pkg.Header.content_type),
+            // <application-type> mirrors the param.json applicationDrmType bucket
+            // (applicationDrmType "free" -> <application-type>free</application-type>).
             ApplicationType = pj.ApplicationDrmType,
             MasterVersion = pj.MasterVersion,
             RequiredSystemSoftwareVersion = pj.RequiredSystemSoftwareVersion,
@@ -997,7 +997,7 @@ public static class ProsperoPkgBuilder
     }
 
     // Per-entry CNT ids that contribute to the system-digest (the sce_sys visual/audio media + their *.dds
-    // re-encodes) and the playgo-digest (the PlayGo stream files). Validated against reference output:
+    // re-encodes) and the playgo-digest (the PlayGo stream files):
     // system = SHA3-256( ed(icon0.png 0x1200) ‖ ed(icon0.dds 0x1280) );
     // playgo = SHA3-256( ed(playgo-chunk.dat 0x1001) ‖ ed(playgo-hash-table.dat 0x2010) ‖ ed(playgo-ficm.dat 0x2011) ).
     private static readonly uint[] SystemMediaIds =
@@ -1023,7 +1023,7 @@ public static class ProsperoPkgBuilder
 
         // system-digest / playgo-digest = SHA3-256 over the concatenated per-entry SHA3 digests of the
         // relevant entries, in ascending id order. Computed over whatever such entries the package carries
-        // (self-consistent); the byte-exact formula is validated against reference output.
+        // (self-consistent).
         byte[]? system = ComputeConcatOverEntries(pkg, SystemMediaIds);
         if (system is not null) digests[ProsperoCntGeneralDigest.SystemDigest] = system;
         byte[]? playgo = ComputeConcatOverEntries(pkg, PlaygoIds);
@@ -1068,7 +1068,7 @@ public static class ProsperoPkgBuilder
     {
         // content-digest = SHA3-256( CNT[0x40:0x78] ‖ game-digest(32, when present) ‖ major-param-digest(32) ).
         // CNT[0x40:0x78] = content_id(36) + 12 reserved + drm_type(BE32 @0x30) + content_type(BE32 @0x34).
-        // The major-param-digest is all-zero for the nwonly package class, as validated against reference output.
+        // The major-param-digest is all-zero for the nwonly package class.
         byte[] descriptor = new byte[ProsperoImageDigests.ContentDescriptorSize];
         byte[] cid = Encoding.ASCII.GetBytes(pkg.Header.content_id);
         Array.Copy(cid, 0, descriptor, 0, Math.Min(cid.Length, 36));
@@ -1131,8 +1131,8 @@ public static class ProsperoPkgBuilder
     ];
 
     // sce_sys images that are re-encoded as a same-named *.dds (BC7) sibling,
-    // with the PS5 entry id of the generated *.dds. Decoded from reference
-    // packages: icon0.png->icon0.dds (0x1280), pic0.png->pic0.dds (0x12A0), pic1.png->pic1.dds
+    // with the PS5 entry id of the generated *.dds. The mapping is
+    // icon0.png->icon0.dds (0x1280), pic0.png->pic0.dds (0x12A0), pic1.png->pic1.dds
     // (0x12C0), pic2.png->pic2.dds (0x2060).
     private static readonly (string Png, string Dds, uint Id)[] DdsMedia =
     [

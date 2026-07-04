@@ -21,9 +21,12 @@ LibProsperoPKG/
     └── LibProsperoPkg/
         ├── LibProsperoPkg.csproj
         ├── ProsperoPackageBuilder.cs   high-level entry point
-        ├── PKG/                         container build/read/write, signing, DDS, FIH
-        ├── PFS/                         inner PFS layout, AES-XTS, PFSC compression
-        ├── Content/                     UCP and fake-self content codecs
+        ├── PKG/                         container build/read/write, signing, DDS, FIH, extraction
+        ├── PFS/                         inner PFS layout, AES-XTS, PFSC compression, extraction
+        ├── Content/                     UCP, fake-self, and auth-info content codecs
+        ├── License/                     per-title license (rif) read/write/create
+        ├── NpDrm/                       package content-info projection
+        ├── DiscBackup/                  split disc-backup (app_0/app_sc) open and verify
         ├── GP5/                         GP5 project model
         ├── Keys/                        publishing key access
         ├── PlayGo/                      PlayGo / "about" helper file generators
@@ -39,10 +42,9 @@ dotnet build -c Release
 
 The output is `bin/Release/net10.0/LibProsperoPkg.dll`.
 
-## Referencing the library
+## Using the library from another project
 
-From another project, reference either the compiled assembly or the
-project directly:
+Point another project at either the compiled assembly or the `.csproj` directly:
 
 ```xml
 <ItemGroup>
@@ -109,6 +111,54 @@ var options = new ProsperoBuildOptions
     ApplicationType     = ProsperoApplicationType.FreemiumApp,
     FakeSignSelfModules = true,
 };
+```
+
+## Reading and extracting a package
+
+Read an existing package's header and entries:
+
+```csharp
+using LibProsperoPkg.PKG;
+
+ProsperoPkg pkg = ProsperoPkgReader.Read("/path/to/some.pkg");
+Console.WriteLine($"{pkg.Type} {pkg.Header?.ContentId}");
+```
+
+Check a package against the structural acceptance gate the console mount path enforces:
+
+```csharp
+ProsperoAcceptanceReport report = ProsperoPkgValidator.Validate("/path/to/some.pkg");
+Console.WriteLine(report.Accepted);
+```
+
+Extract the application filesystem from a finalized debug/keyed image. `Inspect` first reports
+whether a supplied key is required, without needing one:
+
+```csharp
+ProsperoPackageExtractionInfo info = ProsperoPackageExtractor.Inspect("/path/to/some.pkg");
+if (!info.RequiresSuppliedKey)
+{
+    ProsperoPackageManifest manifest = ProsperoPackageExtractor.Extract(
+        "/path/to/some.pkg", "/path/to/output", new string('0', 32));
+    Console.WriteLine(manifest.ExtractedFileCount);
+}
+```
+
+A finalized retail image (signed byte `0x80`) reports `RequiresSuppliedKey = true`; its image key
+is not derivable from public inputs, so extraction needs a supplied 32-byte key through
+`ProsperoExtractionKey.FromEkpfs`.
+
+## Opening a disc-backup
+
+A split disc-backup is a set of `app_0.pkg` / `app_sc.pkg` pieces described by an `app.json`
+manifest. Open the directory, verify integrity, and read the reassembled package:
+
+```csharp
+using LibProsperoPkg.DiscBackup;
+
+ProsperoDiscBackup backup = ProsperoDiscBackup.Open("/path/to/backup/dir");
+Console.WriteLine(backup.VerifyPackageDigest());
+ProsperoPkg pkg = backup.ReadPackage();
 ```
 
 ## Notes on content identifiers

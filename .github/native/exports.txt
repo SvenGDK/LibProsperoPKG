@@ -22,3 +22,15 @@ lpp_fake_sign_folder
 lpp_application_type_name
 lpp_application_drm_type
 lpp_parse_application_type
+lpp_read_auth_info
+lpp_write_auth_info
+lpp_read_npdrm_content_info
+lpp_inspect_package
+lpp_extract_package
+lpp_extract_package_ekpfs
+lpp_rif_record_count
+lpp_read_rif_content_id
+lpp_read_rif_summary
+lpp_validate_package
+lpp_disc_backup_reassemble
+lpp_disc_backup_verify

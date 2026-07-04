@@ -9,7 +9,7 @@
 // differ in everything else; they are disambiguated by the format-version field at offset 0x04
 // (version 2 or 3; the zlib variant stores 0 there).
 //
-// Every field decoded here was validated byte-for-byte against reference output, including: the SHA3-256 file digest at 0x28, the 7-entry section directory at
+// Every field decoded here is modeled, including: the SHA3-256 file digest at 0x28, the 7-entry section directory at
 // 0x48, the block boundary table (id=3) and the per-block SHA3-256 hash table (id=4).
 #nullable enable
 using LibProsperoPkg.PFS.Compression.Oodle;
@@ -100,7 +100,7 @@ public readonly struct PfsBlock
     /// </summary>
     /// <remarks>
     /// The per-block storage location of a non-<see cref="ProsperoPfsShufflePattern.None"/> pattern has not
-    /// been validated against reference output, so this reader
+    /// been characterized, so this reader
     /// reports <see cref="ProsperoPfsShufflePattern.None"/>. Do not rely on it to detect shuffled blocks.
     /// </remarks>
     public ProsperoPfsShufflePattern ShufflePattern => ProsperoPfsShufflePattern.None;
@@ -109,9 +109,9 @@ public readonly struct PfsBlock
 /// <summary>
 /// A parsed PS5 PFSv2/PFSv3 compression container ("PFSC"). Provides the header fields,
 /// the file-level SHA3-256 digest, the per-block table and full decompression of containers
-/// produced by <see cref="ProsperoCompressedPfsFileWriter"/> as well as reference containers: stored
+/// produced by <see cref="ProsperoCompressedPfsFileWriter"/> as well as finalized containers: stored
 /// blocks plus this library's Kraken codec, which decodes the entropy-coded
-/// (Huffman) arrays and the post-seed excess framing used by reference blocks.
+/// (Huffman) arrays and the post-seed excess framing used by finalized blocks.
 /// </summary>
 public sealed class ProsperoCompressedPfsFile
 {
@@ -209,7 +209,7 @@ public sealed class ProsperoCompressedPfsFile
     /// Decompresses the whole container back to its original payload. Stored blocks are copied
     /// verbatim; compressed blocks are decoded with the Kraken codec
     /// (<see cref="Oodle.KrakenDecoder"/>), which reads both this library's own output and
-    /// reference blocks (entropy-coded arrays + the post-seed excess framing). The result has
+    /// finalized blocks (entropy-coded arrays + the post-seed excess framing). The result has
     /// length <see cref="UncompressedSize"/>.
     /// </summary>
     /// <returns>The reconstructed uncompressed payload.</returns>

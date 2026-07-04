@@ -7,7 +7,7 @@
 // target format's incompressible-data behavior (isBlockCompressed = 0). Both paths round-trip
 // byte-exact through the decoder.
 //
-// Every byte the writer emits was validated against reference output: the 32-byte header, the 7-entry section directory (8-byte aligned, data
+// Every byte the writer emits is modeled: the 32-byte header, the 7-entry section directory (8-byte aligned, data
 // padded to 0x400), the git/shuffle constant sections (id=1/2), the bit-packed block-boundary table
 // (id=3) with its stored-block flags (0xCC/0x0C), single-chunk compressed flag (0x06), two-chunk
 // compressed flag (0x26) and saturating size hint, the per-block SHA3-256 hash table (id=4), and the
@@ -50,7 +50,7 @@ public static class ProsperoCompressedPfsFileWriter
     private const ulong SizeHintShift = 44;
     private const ulong SizeHintMax = 0x1FFFF;       // 17-bit saturating (compressedSize - 1) hint
 
-    // id=1: 20-byte tool git hash (constant in every sample — SHA-1 of the encoder source revision).
+    // id=1: 20-byte git hash (a fixed constant — SHA-1 of the encoder source revision).
     private static readonly byte[] GitHash =
     [
         0x23, 0x98, 0x7d, 0x16, 0xc9, 0x20, 0x9a, 0xc7, 0x28, 0x37,

@@ -16,38 +16,37 @@
 //
 //
 // Decoder + byte-exact serializer for the NAPS streaming layout (`naps_pkg_layout.dat`) of a PS5
-// finalized image. The on-disk `PackageLayout_NAPS` structure is what reference output uses for the
+// finalized image. The on-disk `PackageLayout_NAPS` structure backs the
 // streaming output formats (`nwonly` / `bd+nw`).
 //
 // Format boundary - the on-disk format is fully modeled. `Parse` decodes and
-// `BuildLayout` re-serializes; `BuildLayout(Parse(reference)) == reference` for all 544 bytes of the reference
-// sample (block 5 of the outer image: 533 section content + 11 trailing zero pad to a
+// `BuildLayout` re-serializes; `BuildLayout(Parse(x)) == x` for all 544 bytes of a layout
+// block (block 5 of the outer image: 533 section content + 11 trailing zero pad to a
 // 16-byte boundary). `EncodeCblockInfoEntry` repacks every entry from its model fields (not the raw
-// bytes), so the full bit model - not just the section strides - is proven against the reference vector.
-// Validated header decode: NumFiles=7, compType=2 (Kraken), Keys=1, Shuffle=0, UBlocks=19,
+// bytes), so the full bit model - not just the section strides - is exercised by the round-trip.
+// Header decode: NumFiles=7, compType=2 (Kraken), Keys=1, Shuffle=0, UBlocks=19,
 // OuterBlocks=5, CblockInfo=45.
 //
 // Value boundary - this type does not fabricate the record values; it (de)serializes them. The values
-// describe the byte-exact layout of the proprietary NAPS-compressed + AES-XTS-encrypted *download
+// describe the byte-exact layout of the NAPS-compressed + AES-XTS-encrypted *download
 // stream* (the nwonly representation of the package), NOT merely the inner PFS image:
 // * CblockInfo coffsetStart256K/coffsetStartMod256K/coffsetEndMod256K/clenEvenMinus1 = compressed
-// byte offsets and lengths of the reference Oodle-Kraken-compressed download blocks (even/odd halves);
+// byte offsets and lengths of the Oodle-Kraken-compressed download blocks (even/odd halves);
 // * m_tweakIdxStart / m_keyTableIdx = the AES-XTS sector (tweak) and key-table slot of each
-// encrypted run in that stream (reference sample: tweakIdx runs 0,2,4,4,6,6,...,8,0);
+// encrypted run in that stream (e.g. tweakIdx runs 0,2,4,4,6,6,...,8,0);
 // * m_KdePredictor / m_shuffleIdx / m_even / m_odd = the NAPS delta-predictor, pre-compression
 // shuffle selection and even/odd interleave decisions;
 // * m_isRunBase segments the stream into runs (a run-base marker + its member blocks);
 // * fidx (type + 40-bit m_uoffsetStart) and u2c (uint24 m_infoOffset9BBase + 7 deltas =>
 // start_cblockinfo_index per ublock) map files and uncompressed blocks into that stream.
-// Producing these values byte-identically to the reference requires the reference NAPS packager and its
-// exact Kraken encoder (compressed sizes are encoder-defined) - the same encoder constraint documented
+// Producing these values byte-identically requires the exact NAPS packager and its
+// Kraken encoder (compressed sizes are encoder-defined) - the same encoder constraint documented
 // for the Kraken codec - and cannot be byte-matched off-console for independently generated (valid but byte-different)
-// compression. The deliverables here are the Validated format + serializer, plus the confirmed
+// compression. The deliverables here are the modeled format + serializer, plus the confirmed
 // value semantics above.
 //
-// Reference evidence:
-// * reference tool debug-dump format strings (the NAPS packager is statically linked from
-// `naps\sce_naps_packager\src\`) name every field verbatim and confirm the layout field-for-field:
+// Evidence:
+// * debug-dump format strings name every field verbatim and confirm the layout field-for-field:
 // - header `[PackageLayout_NAPS]`: m_numFilesMinus1, m_compressionType, m_numKeysMinus1,
 // m_numShufflePatterns, m_numUBlocks, m_numOuterBlocks, m_numCblockInfoMinus2;
 // - section strides printed as "(=8*%lld)" OuterBlockDigest, ShufflePattern (8 B),
@@ -57,7 +56,7 @@
 // m_keyTableIdx,m_coffsetStart256K` and block `m_coffsetStartMod256K,m_isRunBase,
 // m_uoffsetStart,m_clenEvenMinus1,m_even,m_odd,m_KdePredictor,m_shuffleIdx`.
 // * The exact bit packing of the two 64-bit header words and the inter-field bit offsets of the
-// 9-byte CblockInfo record are confirmed by the byte-exact round-trip against the reference sample.
+// 9-byte CblockInfo record are confirmed by the byte-exact round-trip.
 //
 // See LibProsperoPKG/docs/implementation-status.md and the session checkpoints for format details.
 
@@ -119,7 +118,7 @@ public readonly record struct NapsSectionMap(
     long TotalSize);
 
 /// <summary>
-/// A 6-byte <c>UncompressedOffsetStartByFileIdx</c> (fidx) entry. Layout fully validated against the
+/// A 6-byte <c>UncompressedOffsetStartByFileIdx</c> (fidx) entry. Layout matches the
 /// dump format <c>fidx[..] : type=%02x, m_uoffsetStart=%010llx</c> (1 type byte + 40-bit offset).
 /// </summary>
 /// <param name="Type">The per-file <c>type</c> byte.</param>
@@ -127,7 +126,7 @@ public readonly record struct NapsSectionMap(
 public readonly record struct NapsFileOffsetEntry(byte Type, ulong UncompressedOffsetStart);
 
 /// <summary>
-/// A 10-byte <c>CblockInfoOffsetByUblockIdxCompressed</c> (u2c) entry. Layout fully validated against the
+/// A 10-byte <c>CblockInfoOffsetByUblockIdxCompressed</c> (u2c) entry. Layout matches the
 /// dump format <c>u2c[..] : m_infoOffset9BBase=%06lx, m_deltaFromBase=%02x ×7</c>
 /// (uint24 base + seven delta bytes). Each entry covers 8 uncompressed blocks; the per-ublock
 /// <c>start_cblockinfo_index</c> is <see cref="StartCblockInfoIndex"/>.
@@ -154,15 +153,15 @@ public readonly record struct NapsU2cEntry(uint InfoOffset9BBase, byte[] DeltaFr
 }
 
 /// <summary>
-/// A 9-byte <c>CblockInfo</c> entry. The two record formats and every field name are validated from
-/// the dump format strings; the exact bit OFFSETS are the analysis3 model (see file header).
+/// A 9-byte <c>CblockInfo</c> entry. The two record formats and every field name come from
+/// the dump format strings; the exact bit OFFSETS are the modeled layout (see file header).
 /// </summary>
 public readonly record struct NapsCblockInfoEntry
 {
     /// <summary>Raw 9 bytes of the record, always preserved verbatim.</summary>
     public byte[] Raw { get; init; }
 
-    /// <summary>True for the run-base format, false for the per-block format. (validated discriminator.)</summary>
+    /// <summary>True for the run-base format, false for the per-block format.</summary>
     public bool IsRunBase { get; init; }
 
     // Non-run-base fields (valid when IsRunBase is false).
@@ -231,7 +230,7 @@ public sealed class NapsLayoutDocument
 /// <summary>
 /// Decoder for the PS5 <c>naps_pkg_layout.dat</c> (<c>PackageLayout_NAPS</c>) structure.
 /// Decodes existing bytes; never produces or fabricates the key-gated streaming values. See the file
-/// header for the exact validated-vs-model boundary.
+/// header for the exact confirmed-vs-model boundary.
 /// </summary>
 public static class ProsperoNapsLayout
 {
@@ -259,9 +258,8 @@ public static class ProsperoNapsLayout
     // ---- Header (MODEL packing, per analysis3) ----------------------------------------------------
 
     /// <summary>
-    /// Decode the 16-byte header into section counts. Validated byte-exact (round-trip) against the
-    /// reference <c>Downloads.pkg</c> <c>naps_pkg_layout.dat</c> and corroborated by the
-    /// reference dump-format field names (<c>m_numFilesMinus1</c>, <c>m_numKeysMinus1</c>,
+    /// Decode the 16-byte header into section counts. The field names come from the
+    /// dump-format strings (<c>m_numFilesMinus1</c>, <c>m_numKeysMinus1</c>,
     /// <c>m_numShufflePatterns</c>, <c>m_numUBlocks</c>, <c>m_numOuterBlocks</c>,
     /// <c>m_numCblockInfoMinus2</c>): <c>NumFiles=7, compType=2, Keys=1, Shuffle=0, UBlocks=19,
     /// OuterBlocks=5, CblockInfo=45</c> all decode and re-encode to the exact header bytes.
@@ -313,11 +311,11 @@ public static class ProsperoNapsLayout
         return header;
     }
 
-    // ---- Section map (validated strides) -----------------------------------------------------------
+    // ---- Section map (fixed strides) -----------------------------------------------------------
 
     /// <summary>
-    /// Compute the offset/size of every section from the counts using the validated strides and the
-    /// validated on-disk order. This split is exact given correct counts.
+    /// Compute the offset/size of every section from the counts using the fixed strides and the
+    /// fixed on-disk order. This split is exact given correct counts.
     /// </summary>
     public static NapsSectionMap SectionMap(NapsLayoutCounts counts)
     {
@@ -395,10 +393,10 @@ public static class ProsperoNapsLayout
     }
 
     /// <summary>
-    /// Decode a 9-byte CblockInfo entry. Validated byte-exact (round-trip) against every CblockInfo
-    /// record in the reference <c>Downloads.pkg</c> <c>naps_pkg_layout.dat</c>: the discriminator
+    /// Decode a 9-byte CblockInfo entry. The round-trip re-encodes every CblockInfo record of a
+    /// <c>naps_pkg_layout.dat</c> byte-exact: the discriminator
     /// (<c>m_isRunBase</c> at bit 18), the field set, and all bit offsets re-encode to the exact
-    /// on-disk bytes. Field widths match the reference dump-format hints. The raw bytes
+    /// on-disk bytes. Field widths match the dump-format hints. The raw bytes
     /// are always preserved on <see cref="NapsCblockInfoEntry.Raw"/>.
     /// </summary>
     public static NapsCblockInfoEntry DecodeCblockInfoEntry(ReadOnlySpan<byte> entry)
@@ -449,15 +447,14 @@ public static class ProsperoNapsLayout
 
     /// <summary>
     /// Parse a full <c>naps_pkg_layout.dat</c> blob using counts decoded from its header. The header
-    /// packing and every section decoder are validated byte-exact (round-trip) against the reference
-    /// <c>Downloads.pkg</c> sample.
+    /// packing and every section decoder round-trip byte-exact.
     /// </summary>
     public static NapsLayoutDocument Parse(ReadOnlySpan<byte> blob)
         => Parse(blob, DecodeHeader(blob));
 
     /// <summary>
     /// Parse a full <c>naps_pkg_layout.dat</c> blob using explicitly supplied counts (e.g. from the
-    /// <c>reference metric data</c>). The section split uses only the validated strides, so it is exact.
+    /// supplied metric data). The section split uses only the fixed strides, so it is exact.
     /// </summary>
     public static NapsLayoutDocument Parse(ReadOnlySpan<byte> blob, NapsLayoutCounts counts)
     {
@@ -496,20 +493,19 @@ public static class ProsperoNapsLayout
     // ---- Top-level serializer ---------------------------------------------------------------------
 
     /// <summary>
-    /// Default zero-pad alignment of the serialized blob. The reference <c>Downloads.pkg</c>
-    /// <c>naps_pkg_layout.dat</c> has 533 bytes of section content padded up to 544 (a multiple of
-    /// both 16 and 32); 16 is used as the default and is exact for that sample. Pass <c>1</c> to emit
+    /// Default zero-pad alignment of the serialized blob. A <c>naps_pkg_layout.dat</c>
+    /// has 533 bytes of section content padded up to 544 (a multiple of
+    /// both 16 and 32); 16 is used as the default. Pass <c>1</c> to emit
     /// the unpadded section content only.
     /// </summary>
     public const int DefaultAlignment = 16;
 
     /// <summary>
     /// Serialize a <see cref="NapsLayoutDocument"/> back into a <c>naps_pkg_layout.dat</c> blob, byte-exact.
-    /// This is the inverse of <see cref="Parse(ReadOnlySpan{byte}, NapsLayoutCounts)"/> and is validated
-    /// round-trip byte-exact against the reference <c>Downloads.pkg</c> sample:
-    /// <c>BuildLayout(Parse(reference)) == reference</c> for every byte, including the trailing zero pad.
-    /// The section content is emitted in the validated on-disk order
-    /// (header, outer-block digests, shuffle patterns, fidx, u2c, CblockInfo) using the validated
+    /// This is the inverse of <see cref="Parse(ReadOnlySpan{byte}, NapsLayoutCounts)"/>:
+    /// <c>BuildLayout(Parse(x)) == x</c> for every byte, including the trailing zero pad.
+    /// The section content is emitted in the fixed on-disk order
+    /// (header, outer-block digests, shuffle patterns, fidx, u2c, CblockInfo) using the
     /// per-field encoders, then zero-padded to <paramref name="alignment"/>.
     /// </summary>
     /// <param name="document">The layout to serialize. Its <see cref="NapsLayoutDocument.Counts"/> must
@@ -597,7 +593,7 @@ public static class ProsperoNapsLayout
 
     /// <summary>
     /// Encode a CblockInfo entry from the model fields (inverse of <see cref="DecodeCblockInfoEntry"/>).
-    /// Validated byte-exact (round-trip) against every CblockInfo record in the reference Downloads.pkg sample.
+    /// The round-trip re-encodes every CblockInfo record byte-exact.
     /// </summary>
     public static byte[] EncodeCblockInfoEntry(NapsCblockInfoEntry entry)
     {

@@ -190,7 +190,7 @@ public static class ProsperoPfsLayout
         }
     }
 
-    // Recursively builds an FSDir tree from a reference folder, applying the exclude masks. Names are
+    // Recursively builds an FSDir tree from a source folder, applying the exclude masks. Names are
     // sorted for deterministic, reproducible output.
     private static ProsperoFsDir BuildTree(string sourceFolder, ProsperoPfsLayoutOptions options, out int fileCount, out int dirCount)
     {

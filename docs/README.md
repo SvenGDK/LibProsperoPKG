@@ -35,3 +35,9 @@ prepared folder (sce_sys/ + eboot + data)
    \x7FFIH debug image  ──►  installable on a debug-mode console
 ```
 
+The library also has a read side. `ProsperoPackageExtractor` inspects and unpacks debug packages,
+`ProsperoDiscBackup` reassembles split `app_0.pkg` / `app_sc.pkg` backups from an `app.json`
+manifest, and the `License` and `NpDrm` namespaces read `rif` licences and project package
+content-info. See [api-overview.md](api-overview.md) for the full surface and
+[ps5-pkg-format.md](ps5-pkg-format.md) §9–§11 for the RIF, disc-backup and extraction formats.
+

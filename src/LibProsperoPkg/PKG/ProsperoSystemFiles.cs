@@ -76,7 +76,7 @@ public static class ProsperoSystemFiles
     /// Validates a <c>nptitle.dat</c> blob and extracts its title id.
     /// </summary>
     /// <param name="data">The file bytes.</param>
-    /// <param name="titleId">The title id (e.g. <c>PPSA07190_00</c>) on success; otherwise <c>null</c>.</param>
+    /// <param name="titleId">The title id (e.g. <c>PPSA00000_00</c>) on success; otherwise <c>null</c>.</param>
     /// <param name="error">A description of the first structural problem, or <c>null</c> on success.</param>
     public static bool ValidateNptitle(ReadOnlySpan<byte> data, out string? titleId, out string? error)
     {

@@ -123,7 +123,7 @@ public class ProsperoPfsBuilder
 
         // The PFS super-root holds the flat path table (+ optional collision resolver) and the user
         // root ("uroot"). These internal pseudo files are not part of the user tree, so synthesize
-        // them from their dedicated inodes to mirror the reference super-root layout.
+        // them from their dedicated inodes to mirror the PFS super-root layout.
         root.Children.Add(ImageNodeFromInode(fpt_ino, "inode_flat_path_table", isDir: false, isInternal: true));
         if (cr_ino != null)
             root.Children.Add(ImageNodeFromInode(cr_ino, "collision_resolver", isDir: false, isInternal: true));

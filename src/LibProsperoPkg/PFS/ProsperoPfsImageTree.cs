@@ -106,7 +106,7 @@ public sealed class ProsperoPfsImageTreeInfo
 
     /// <summary>
     /// The synthetic super-root: the flat path table (+ optional collision resolver) and the
-    /// user root (<c>uroot</c>) subtree, matching the reference PFS super-root layout.
+    /// user root (<c>uroot</c>) subtree, matching the PFS super-root layout.
     /// </summary>
     public ProsperoPfsImageNode Root { get; init; } = new();
 }

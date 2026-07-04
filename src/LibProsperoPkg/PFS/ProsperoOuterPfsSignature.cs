@@ -2,9 +2,8 @@
 // Copyright (C) 2026 SvenGDK
 //
 // PS5 outer-PFS *signing* primitives for the `nwonly`
-// finalized image. The outer superblock builder and metadata writer outputs are Validated byte-exact against the reference
-// package's outer PFS image (all 11 blocks reproduce the reference on-disk ciphertext, every stored
-// hash and the superblock ICV match):
+// finalized image. The outer superblock builder and metadata writer produce the full outer PFS image
+// (all 11 blocks of on-disk ciphertext, every stored hash and the superblock ICV):
 //
 // * Per-block / dinode hash = plain SHA3-256(plaintext block). Stored at dinode+0x64 (32 bytes),
 // immediately followed by the owning block index at dinode+0x84 (u32 LE) — a 36-byte {hash,blkIdx}

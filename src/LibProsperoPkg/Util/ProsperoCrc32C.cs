@@ -1,12 +1,10 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
 // Copyright (C) 2026 SvenGDK
 //
-// CRC-32C (Castagnoli) reducer used by reference tool for the PS5 sce_suppl
-// config/{content-id}/playgo-chunk.crc file. The publishing tool reduces the *finalized mount
-// image* in 64KiB blocks: each block's CRC-32C is appended as a little-endian uint32, in block
-// order. This was decoded byte-for-byte from the reference debug packages in TestFiles/PS5/PKG/Debug
-// (Downloads/InternetBrowser = 17 dwords over a 0x110000 mount image, DebugSettings = 90 dwords
-// over a 0x5A0000 mount image) and reproduces all of them exactly.
+// CRC-32C (Castagnoli) reducer for the PS5 sce_suppl config/{content-id}/playgo-chunk.crc file.
+// The reducer processes the *finalized mount image* in 64KiB blocks: each block's CRC-32C is
+// appended as a little-endian uint32, in block order (e.g. 17 dwords over a 0x110000 mount image,
+// 90 dwords over a 0x5A0000 mount image).
 //
 // The variant is the standard ("reflected") CRC-32C used by iSCSI/SCTP/ext4/Btrfs and exposed by
 // the SSE4.2 CRC32 instruction: polynomial 0x1EDC6F41 (reflected 0x82F63B78), initial value
@@ -20,7 +18,7 @@ namespace LibProsperoPkg.Util;
 
 /// <summary>
 /// Standard reflected CRC-32C (Castagnoli, reflected polynomial 0x82F63B78, init/xorout
-/// 0xFFFFFFFF). This is the exact reducer reference tool uses to build
+/// 0xFFFFFFFF). This is the exact reducer used to build
 /// <c>playgo-chunk.crc</c>; see the file header for the decoded layout and validation.
 /// </summary>
 public static class ProsperoCrc32C

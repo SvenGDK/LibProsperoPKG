@@ -10,13 +10,13 @@
 // * Outer finalized image (PS5 nwonly): each whole 0x10000 filesystem block is ONE AES-XTS data
 // unit, sectors numbered by image block index (0-based from the image start), and the plaintext
 // block is the *metadata* (superblock) block — which, in a PS5 read-only "data-first" image, sits
-// near the END of the image (block 6 of 11 in the reference package), not block 0.
+// near the END of the image (block 6 of 11), not block 0.
 //
 // The (tweak, data) key pair comes from the SHA3-256 EKPFS + new_crypt schedule in ProsperoPfsKeys,
-// which is validated BIDIRECTIONALLY against the reference package: decrypting the on-disk outer
+// which is checked BIDIRECTIONALLY: decrypting the on-disk outer
 // image yields coherent plaintext (the keystone file and the nested PFS superblock), and re-encrypting
 // that plaintext reproduces the original ciphertext byte-for-byte for every encrypted block. This type
-// packages that validated primitive as first-class, in-memory, managed API (no temp
+// packages that primitive as a first-class, in-memory, managed API (no temp
 // files), ready for the nwonly outer-PFS assembler to consume.
 #nullable enable
 using LibProsperoPkg.Util;

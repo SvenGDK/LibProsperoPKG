@@ -134,7 +134,7 @@ public sealed class ProsperoBuildOptions
     /// <list type="bullet">
     /// <item><see cref="ProsperoInnerCompression.Zlib"/> — zlib PFSC (installable inner image).</item>
     /// <item><see cref="ProsperoInnerCompression.Kraken"/> — PS5 PFSv3 Kraken (the
-    /// <c>nwonly</c> inner-image codec), validated against reference output.
+    /// <c>nwonly</c> inner-image codec).
     /// Incompressible images fall back to the raw wrapper automatically.</item>
     /// </list>
     /// </summary>
@@ -517,7 +517,7 @@ public static class ProsperoPackageBuilder
     /// </summary>
     /// <remarks>
     /// The detached signature and the checked key material are self-validated; a fully accepted
-    /// retail image additionally requires reference-controlled secrets.
+    /// retail image additionally requires console-controlled secrets.
     /// </remarks>
     private static void SignPackage(
         string pkgPath, ProsperoBuildOptions options, Action<string> log, List<string> warnings)
@@ -580,7 +580,7 @@ public static class ProsperoPackageBuilder
 
     /// <summary>
     /// Compares two PS5 containers field-by-field (parsed header and entry table). Useful to verify
-    /// that a candidate package matches a known-good reference container.
+    /// that a candidate package matches a known-good baseline container.
     /// </summary>
     /// <returns>An empty list when the containers match; otherwise the differences found.</returns>
     public static IReadOnlyList<string> CompareContainers(string referencePkg, string candidatePkg)

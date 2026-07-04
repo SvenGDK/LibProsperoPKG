@@ -4,29 +4,26 @@
 // Producer for the NAPS metadata records (`common/etc/naps_meta_*.dat`) that are
 // streamed into the SI (install-metadata) segment of a finalized image for the streaming output
 // formats (`nwonly`). The NAPS record dispatcher routes each record id to a stored
-// member by the `naps_meta_%d.dat` naming; the record layout matches the reference debug packages byte-for-byte.
+// member by the `naps_meta_%d.dat` naming.
 //
 // records and external inputs:
 // * naps_meta_300/301/302/308.dat -> reproduced byte-exact. All four ids carry the same 48-byte
-// plaintext descriptor record (validated byte-identical within every package). The record is six
-// little-endian u64 fields and is fully derived from the finalized inner-image geometry (no key,
-// no console secret), so it is produced exactly here and gated against three reference debug packages.
+// plaintext descriptor record. The record is six little-endian u64 fields and is fully derived from
+// the finalized inner-image geometry (no key, no console secret), so it is produced exactly here.
 // * naps_meta_18.dat -> not reproduced. It is a keyed/encrypted per-package NAPS metric blob
-// (3440 B for Downloads/InternetBrowser, 7936 B for DebugSettings) whose first 16 bytes are a
+// (3440 B or 7936 B depending on the package) whose first 16 bytes are a
 // constant across all packages (1A E5 3E 75 C0 58 78 9C CE 8E 03 A8 78 15 A6 8B) followed by
-// AES-block-structured, per-package-divergent ciphertext. It is a reference finalization product with
+// AES-block-structured, per-package-divergent ciphertext. It is a console finalization product with
 // no off-console producer in any available binary; it is accepted/emitted verbatim, never fabricated.
 //
-// Decoded naps_meta_300 RECORD (48 bytes, all values little-endian; ground truth = the three debug
-// packages in TestFiles/PS5/PKG/Debug/extracted/*/sce_suppl/common/etc/):
+// naps_meta_300 RECORD (48 bytes, all values little-endian):
 // 0x00 u64 = 0 reserved (record start offset)
 // 0x08 u64 = 0 reserved
 // 0x10 u64 = R inner-image data-region size (= innerImageSize - 0x10000)
 // 0x18 u64 = 0x3E9 (1001) constant NAPS-meta kind/version id
 // 0x20 u64 = R inner-image data-region size (repeated)
 // 0x28 u64 = 0x10000 PFS block size (64 KiB)
-// R validated: DebugSettings R=0x4C0000 (innerImageSize 0x4D0000 - 0x10000); Downloads/InternetBrowser
-// R=0x40000 (innerImageSize 0x50000 - 0x10000). R equals the nested-image <metadata offset> reported
+// R = innerImageSize - 0x10000. R equals the nested-image <metadata offset> reported
 // by the package's own pfsimage.xml, i.e. the size of the compressed inner-image content that precedes
 // the inner image's own metadata block.
 
@@ -48,7 +45,7 @@ public static class ProsperoNapsMeta
 
     /// <summary>
     /// Constant NAPS-meta kind/version id stored at offset 0x18 of every <c>naps_meta_300</c> record
-    /// (<c>0x3E9</c> = 1001). Validated as identical across all reference debug packages.
+    /// (<c>0x3E9</c> = 1001). Identical across all debug packages.
     /// </summary>
     public const ulong Meta300KindId = 0x3E9;
 

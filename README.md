@@ -18,6 +18,14 @@ application.
   RSA-3072 metadata signing and the finalized debug image are produced by the library itself.
 - **Reader and writer.** Parse and inspect existing PS5 packages (`\x7FCNT` / `\x7FFIH`) and
   build new ones.
+- **Extraction.** Extract the application filesystem from a finalized debug/keyed image with
+  `ProsperoPackageExtractor`, or from any image whose 32-byte image key is supplied.
+- **Disc-backup packages.** Open a split disc-backup (`app_0.pkg` + `app_sc.pkg`) through its
+  `app.json` manifest, reassemble it on the fly, and verify the package digest and 64 KiB chunk CRCs.
+- **License (`rif`).** Read, write and create the per-title license record — including multi-title
+  files — through `LibProsperoPkg.License`.
+- **Acceptance checks.** Validate a package against the structural gate the console mount path
+  enforces (`ProsperoPkgValidator`).
 - **Fake-signed packages (fPKG).** Optionally fake-sign raw ELF modules (`eboot.bin`, `*.elf`,
   `*.prx`, `*.sprx`) to fake-self before packing, producing an installable fake package. The
   conversion is non-destructive: source modules are restored after the build.
@@ -51,7 +59,7 @@ This produces `LibProsperoPkg.dll`.
 
 ## Quick start
 
-Add a reference to the project (or the built `LibProsperoPkg.dll`) and build a
+Add the project (or the built `LibProsperoPkg.dll`) to your build and create a
 package from a prepared application folder:
 
 ```csharp
@@ -118,12 +126,15 @@ Console.WriteLine($"Entries:    {pkg.Entries.Count}");
 | Namespace | Key types |
 |---|---|
 | `LibProsperoPkg` | `ProsperoPackageBuilder`, `ProsperoBuildOptions`, `ProsperoBuildResult`, `ProsperoPackageMode`, `ProsperoOutputFormat`, `InnerImageForm`, `ProsperoApplicationType` |
-| `LibProsperoPkg.PKG` | `ProsperoPkgBuilder`, `ProsperoPkgReader`, `ProsperoCntWriter`, `ProsperoFihBuilder`, `ProsperoPkgSigner`, `ProsperoDdsEncoder`, `ProsperoPkg`, `ProsperoPkgHeader` |
-| `LibProsperoPkg.PFS` | `ProsperoPfsLayout`, `ProsperoPfsImage`, `ProsperoPfsc` |
+| `LibProsperoPkg.PKG` | `ProsperoPkgBuilder`, `ProsperoPkgReader`, `ProsperoCntWriter`, `ProsperoFihBuilder`, `ProsperoPkgSigner`, `ProsperoDdsEncoder`, `ProsperoPackageExtractor`, `ProsperoExtractionKey`, `ProsperoPkgValidator`, `ProsperoPkg`, `ProsperoPkgHeader` |
+| `LibProsperoPkg.PFS` | `ProsperoPfsLayout`, `ProsperoPfsImage`, `ProsperoPfsc`, `ProsperoPfsExtractor` |
+| `LibProsperoPkg.License` | `ProsperoRif`, `ProsperoRifSet`, `ProsperoEntitlementKey` |
+| `LibProsperoPkg.NpDrm` | `ProsperoNpDrmContentInfo` |
+| `LibProsperoPkg.DiscBackup` | `ProsperoDiscBackup`, `ProsperoDiscBackupManifest`, `ProsperoPlaygoChunkCrc` |
 | `LibProsperoPkg.GP5` | `Gp5Creator`, `Gp5Project` and its element model |
 | `LibProsperoPkg.Keys` | `ProsperoKeys` |
 | `LibProsperoPkg.PlayGo` | `ProsperoPlayGo` |
-| `LibProsperoPkg.Content` | `ProsperoUcp`, `ProsperoFself` |
+| `LibProsperoPkg.Content` | `ProsperoUcp`, `ProsperoFself`, `ProsperoSelfAuthInfo` |
 
 See **[docs/](docs/)** for the full feature status and the PS5 package technical write-up.
 
@@ -133,7 +144,7 @@ See **[docs/](docs/)** for the full feature status and the PS5 package technical
 
 - **[docs/README.md](docs/README.md)** - documentation index.
 - **[docs/getting-started.md](docs/getting-started.md)** - install, build and first package.
-- **[docs/api-overview.md](docs/api-overview.md)** - public API reference by namespace.
+- **[docs/api-overview.md](docs/api-overview.md)** - public API by namespace.
 - **[docs/implementation-status.md](docs/implementation-status.md)** - what is implemented and
   what is still missing.
 - **[docs/ps5-pkg-format.md](docs/ps5-pkg-format.md)** - technical write-up of the PS5 package

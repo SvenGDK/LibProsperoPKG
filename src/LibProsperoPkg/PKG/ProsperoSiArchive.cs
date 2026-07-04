@@ -4,9 +4,8 @@
 // Producer for the trailing SI (install-metadata) segment of a finalized image, in the
 // DEBUG variant (FIH signed byte 0x00).
 //
-// Validated format. Decoded byte-for-byte from TestFiles/PS5/PKG/Debug/Downloads.pkg (cross-checked
-// against InternetBrowser.pkg and DebugSettings.pkg): in a debug finalized image the SI segment is
-// a plain ZIP (PK\x03\x04, every member STORED / uncompressed) with this exact member set:
+// In a debug finalized image the SI segment is a plain ZIP (PK\x03\x04, every member STORED /
+// uncompressed) with this exact member set:
 //
 // common/etc/naps_meta_18.dat 3440 B (per-package metric blob)
 // common/etc/naps_meta_300/301/302/308.dat 48 B each, byte-identical
@@ -16,21 +15,20 @@
 //
 // Records and external inputs:
 // * ZIP container framing, STORED entries and the exact member paths -> reproduced.
-// * pfsimage.xml structure (the reference <package-configuration type="package-info"> tree with the
+// * pfsimage.xml structure (the <package-configuration type="package-info"> tree with the
 // "0xNN 0xNN" digest formatting, <config>/<digests>/<params>/<container>/<mount-image>) ->
 // reproduced from values the caller/builder already knows.
 // * playgo-chunk.dat -> reproduced (it is copied verbatim from the inner PFS the builder makes).
 // * naps_meta_300/301/302/308.dat -> reproduced byte-exact by ProsperoNapsMeta.BuildMeta300 (a
-// plaintext 48-byte descriptor derived from the inner-image geometry; validated against three reference
-// debug packages).
+// plaintext 48-byte descriptor derived from the inner-image geometry).
 // * Several pfsimage.xml <digests> are reproducible and should be supplied by the builder:
 // game-digest (== inner sblock-digest, SHA3-256 of the plaintext outer superblock), param-digest
 // (SHA3-256 of the param.json CNT entry), body-digest, fixed-info-digest, package-digest
 // (== SHA3-256(CNT[0:0xFE0]), ProsperoImageDigests.ComputePackageDigest, identical to the value the
 // produced CNT stores at +0xFE0), and the full GeneralDigests set — content-digest, header-digest,
 // system-digest, playgo-digest and the target slot (all SHA3-256 of plaintext CNT regions / per-entry
-// digests, ProsperoPkgBuilder.ComputeGeneralDigests, Validated byte-exact against the reference debug
-// packages). When the produced CNT bytes are available, pass these via the corresponding options
+// digests, ProsperoPkgBuilder.ComputeGeneralDigests). When the produced CNT bytes are available, pass
+// these via the corresponding options
 // rather than leaving placeholders.
 // * The remaining members are not reproducible off-console: the distinct FIH 0xB0 slot (a best-effort
 // nested-image-content hash), the keyed/encrypted naps_meta_18.dat metric blob, and the 68-byte
@@ -105,7 +103,7 @@ public sealed class ProsperoChunkInfoModel
 /// </summary>
 public sealed class ProsperoPfsImageXmlOptions
 {
-    /// <summary>Content id, e.g. <c>IV9999-NPXS41139_00-XXXXXXXXXXXXXXXX</c>.</summary>
+    /// <summary>Content id, e.g. <c>IV0000-NPXS00000_00-XXXXXXXXXXXXXXXX</c>.</summary>
     public string ContentId { get; set; } = "";
 
     /// <summary>Human-readable title (<c>&lt;titleName&gt;</c> / <c>&lt;chunkinfo&gt;</c>).</summary>
@@ -167,14 +165,14 @@ public sealed class ProsperoPfsImageXmlOptions
     public string SdkVersion { get; set; } = "0x0000000000000000";
 
     /// <summary>
-    /// Toolchain <c>&lt;version-date&gt;</c> stamp. Defaults to the validated
-    /// reference build constant <c>0x20200722</c>.
+    /// Toolchain <c>&lt;version-date&gt;</c> stamp. Defaults to the build
+    /// constant <c>0x20200722</c>.
     /// </summary>
     public uint VersionDate { get; set; } = 0x20200722;
 
     /// <summary>
-    /// Toolchain <c>&lt;version-hash&gt;</c> stamp. Defaults to the validated
-    /// reference build constant <c>0x01fe52e9</c>.
+    /// Toolchain <c>&lt;version-hash&gt;</c> stamp. Defaults to the build
+    /// constant <c>0x01fe52e9</c>.
     /// </summary>
     public uint VersionHash { get; set; } = 0x01fe52e9;
 
@@ -247,8 +245,8 @@ public sealed class ProsperoPfsImageXmlOptions
 }
 
 /// <summary>
-/// Writes the <b>debug</b>-variant SI install-metadata segment as the reference ZIP container decoded
-/// from the reference debug packages. The container, member paths, the <c>pfsimage.xml</c> structure
+/// Writes the <b>debug</b>-variant SI install-metadata segment as the ZIP container decoded
+/// from the debug packages. The container, member paths, the <c>pfsimage.xml</c> structure
 /// (reproduced byte-for-byte through its config/digests/params/container/mount-image/entries
 /// sections) and
 /// the copied <c>playgo-chunk.dat</c> are reproduced exactly; keyed members are supplied by the
@@ -290,14 +288,14 @@ public static class ProsperoSiArchive
 
         // When the caller passes the finalized mount image but not an explicit CRC blob, compute
         // playgo-chunk.crc reproducibly (CRC-32C of each 64KiB block). An explicitly supplied blob
-        // always wins so verbatim keyed/sample inputs are preserved.
+        // always wins so supplied keyed inputs are preserved.
         playGoChunkCrc ??= finalizedMountImage is { Length: > 0 }
             ? ProsperoPlayGo.BuildChunkCrc(finalizedMountImage)
             : null;
 
         var members = new List<ProsperoSiMember>();
 
-        // The reference member order in Downloads.pkg is naps_meta_* first, then pfsimage.xml, then
+        // The member order is naps_meta_* first, then pfsimage.xml, then
         // playgo-chunk.dat, then the per-content-id playgo-chunk.crc.
         if (napsMeta18 is not null)
             members.Add(new(NapsMeta18Path, napsMeta18));
@@ -345,7 +343,7 @@ public static class ProsperoSiArchive
     /// Block-aligned stored size of the inner <c>pfs_image.dat</c> (the FIH-0xA0 value), captured by the
     /// builder. When positive it drives the <c>naps_meta_300</c> record directly. When 0 (e.g. a standalone
     /// caller with only the finalized image) it falls back to reading FIH[0xA0] out of <paramref name="mountImage"/>,
-    /// which is only populated for the reference data-first layout.
+    /// which is only populated for the data-first layout.
     /// </param>
     /// <param name="warnings">Optional sink for any all-zero-placeholder notices from the XML builder.</param>
     public static byte[] BuildDebugSiSegment(
@@ -357,8 +355,8 @@ public static class ProsperoSiArchive
 
         // naps_meta_300 R = InnerImageSize - 0x10000 (block-aligned inner-image size minus one FIH block).
         // Prefer the builder-captured InnerImageSize; when it is not supplied (standalone callers), read
-        // FIH[0xA0] out of the mount image, which is only populated for the reference data-first layout.
-        // Below one block the record cannot be derived, so it is simply omitted (never faked).
+        // FIH[0xA0] out of the mount image, which is only populated for the data-first layout.
+        // Below one block the record cannot be derived, so it is omitted (never faked).
         byte[]? napsMeta300 = null;
         ulong innerSize = innerImageSize > 0 ? (ulong)innerImageSize : 0;
         if (innerSize == 0)
@@ -386,7 +384,7 @@ public static class ProsperoSiArchive
 
     /// <summary>
     /// Serialises <paramref name="members"/> into a ZIP using <see cref="CompressionLevel.NoCompression"/>
-    /// (the reference SI uses STORED entries) and returns the raw segment bytes.
+    /// (the SI uses STORED entries) and returns the raw segment bytes.
     /// </summary>
     public static byte[] WriteZip(IReadOnlyList<ProsperoSiMember> members)
     {
@@ -421,7 +419,7 @@ public static class ProsperoSiArchive
     }
 
     /// <summary>
-    /// Builds <c>common/etc/pfsimage.xml</c> in the reference format, reproduced byte-for-byte through its
+    /// Builds <c>common/etc/pfsimage.xml</c> in the finalized format, reproduced byte-for-byte through its
     /// <c>&lt;config&gt;</c>, <c>&lt;digests&gt;</c>, <c>&lt;params&gt;</c>, <c>&lt;container&gt;</c>,
     /// <c>&lt;mount-image&gt;</c> and <c>&lt;entries&gt;</c> sections. Keyed
     /// digest fields are emitted verbatim when present on <paramref name="options"/>, otherwise as
@@ -633,7 +631,7 @@ public static class ProsperoSiArchive
     }
 
     // Outer <pfs-image> tree: block-index oriented, imode only (no per-node mode), matching the
-    // reference <pfs-image><root> convention.
+    // standard <pfs-image><root> convention.
     private static void AppendOuterNode(StringBuilder sb, ProsperoPfsImageNode n, int blockSize, string pad)
     {
         string child = pad + "  ";
@@ -655,7 +653,7 @@ public static class ProsperoSiArchive
     }
 
     // Nested <nested-image> tree: byte-offset oriented, with mode + imode + afid + chunk on user
-    // files, matching the reference <nested-image><root> convention. Physical package offsets
+    // files, matching the standard <nested-image><root> convention. Physical package offsets
     // (poffset) are omitted because they are not stable for our compressed inner image.
     private static void AppendNestedNode(StringBuilder sb, ProsperoPfsImageNode n, int blockSize, ref int afid, string pad)
     {

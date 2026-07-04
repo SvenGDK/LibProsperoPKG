@@ -32,12 +32,12 @@
 // ProsperoImageDigests.ComputePackageDigest); and the entire CNT GeneralDigests block —
 // content-digest, header-digest, system-digest, param-digest, playgo-digest and the target slot —
 // plus the per-entry digest table, all SHA3-256 of plaintext CNT regions/entries
-// (ProsperoImageDigests + ProsperoPkgBuilder.ComputeGeneralDigests), validated against reference
-// output. The distinct FIH slot at 0xB0 is the nested-image-content digest: SHA3-256 of the
+// (ProsperoImageDigests + ProsperoPkgBuilder.ComputeGeneralDigests). The distinct FIH slot at 0xB0
+// is the nested-image-content digest: SHA3-256 of the
 // UNCOMPRESSED inner (nested) PFS
 // image at its plain/logical size (NOT the outer image, NOT the stored/compressed pfs_image.dat);
 // the CNT build path threads that exact preimage in, so the value is self-consistent with our own
-// encoder (it matches reference output once the inner image is byte-identical). What
+// encoder (it matches the finalized output once the inner image is byte-identical). What
 // is NOT emitted byte-faithfully: (1) the standalone-finalize path (BuildFromCnt) has only a finished
 // encrypted CNT, so it cannot recover the plaintext inner image and falls back to a best-effort 0xB0
 // over the outer image; (2) the trailing SI ZIP, generated only when the caller
@@ -90,7 +90,7 @@ public static class ProsperoFihBuilder
     /// <param name="siArchiveFactory">
     /// Optional alternative to <paramref name="siArchive"/>: a factory that receives the assembled,
     /// finalized mount image (FIH header + PFS image + embedded CNT — i.e. exactly the region the
-    /// reference process reduces for <c>playgo-chunk.crc</c>) and returns the SI bytes to append. This
+    /// finalization process reduces for <c>playgo-chunk.crc</c>) and returns the SI bytes to append. This
     /// lets the SI be built with a byte-exact, reproducible <c>playgo-chunk.crc</c> derived from the
     /// finalized image. Ignored when <paramref name="siArchive"/> is non-null.
     /// </param>
@@ -173,7 +173,7 @@ public static class ProsperoFihBuilder
             "CNT + PFS image, including the byte-exact game-digest (0x30/0x70/0xD0), the CNT package-digest " +
             "self-seal (CNT+0xFE0), and the full GeneralDigests block (content/header/system/param/playgo/" +
             "target) plus the per-entry digest table — all SHA3-256 of plaintext CNT regions/entries, " +
-            "reproduced byte-exact and validated against reference output. " +
+            "reproduced byte-exact. " +
             (nestedImageDigest is { Length: 32 }
                 ? "The FIH 0xB0 slot is the nested-image-content digest threaded in from the build pass: " +
                   "SHA3-256 of the UNCOMPRESSED inner PFS image at its plain size, self-consistent with our encoder."
@@ -221,7 +221,7 @@ public static class ProsperoFihBuilder
 
         // ---- Finalized-image digest table. ----
         // game-digest == sblock-digest == SHA3-256(plaintext outer superblock block, 0x10000 bytes),
-        // stored three times at 0x30/0x70/0xD0. Validated byte-exact against reference output.
+        // stored three times at 0x30/0x70/0xD0.
         // The FIH also records the
         // superblock's absolute offset (0x20) and size (0x28) so the loader can locate the hashed
         // block. See ProsperoImageDigests for the full digest construction.
@@ -235,15 +235,14 @@ public static class ProsperoFihBuilder
             CopyDigest(h, 0x70, gameDigest);
             CopyDigest(h, 0xD0, gameDigest);
 
-            // ---- Outer-PFS block accounting, validated against reference output. The nwonly outer PFS uses the
+            // ---- Outer-PFS block accounting. The nwonly outer PFS uses the
             // "data-first" layout [pfs_image.dat blocks][naps_pkg_layout.dat block][superblock]
             // [structural metadata...], so the plaintext superblock sits exactly one block (the naps
             // file) after the inner image. From its image-relative block index we recover:
             //   0x90 inner-image (pfs_image.dat) block count = sbBlockIndex - 1
             //   0xA0 block-aligned inner-image size          = 0x90 * blockSize
             //   0x94 == 0x98 outer metadata block count      = totalBlocks - 0x90
-            // Invariant 0x90 + 0x94 == pfsImageSize / blockSize holds on all three samples
-            // (DS 0x4d+7=0x54, DL/IB 5+6=0xb).
+            // Invariant 0x90 + 0x94 == pfsImageSize / blockSize holds for the layout.
             int blockSize = ProsperoPkgLayout.FihHeaderRegionSize;
             long sbBlockIndex = (long)sbOffsetInImage / blockSize;
             long totalBlocks = (long)pfsImageSize / blockSize;
@@ -287,7 +286,7 @@ public static class ProsperoFihBuilder
         // standalone finalize path (which only has the finished encrypted CNT) cannot recover the plaintext
         // inner image and falls back to SHA3-256(outer image). Cycle-free either way: both inputs are final
         // before the CNT digest table is computed. Self-consistent with our encoder and matches
-        // reference output once the inner image is byte-identical.
+        // the finalized output once the inner image is byte-identical.
         CopyDigest(h, 0xB0, nestedImageDigest is { Length: 32 }
             ? nestedImageDigest
             : ProsperoImageDigests.Sha3_256(image));

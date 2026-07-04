@@ -41,6 +41,10 @@ public sealed class ProsperoPkgHeader
 
     /// <summary>The content type (header offset 0x74).</summary>
     public uint ContentType { get; init; }
+
+    /// <summary>The content flags (header offset 0x78). Bit 31 is the console's is-patch input;
+    /// the patch-kind bits are interpreted by <see cref="LibProsperoPkg.NpDrm.ProsperoNpDrmContentInfo"/>.</summary>
+    public uint ContentFlags { get; init; }
 }
 
 /// <summary>
@@ -93,6 +97,16 @@ public sealed class ProsperoFihHeader
 
     /// <summary>True when this is an official finalized image (signed byte 0x80).</summary>
     public bool IsOfficial => SignedByte == 0x80;
+
+    /// <summary>
+    /// The finalized-image format version (FIH offset 0x06, little-endian). The console mount path
+    /// (see Reversed/AppSubcontainerGetEEKpfs.md) requires this to be
+    /// <see cref="ProsperoPkgLayout.FihRequiredFormatVersion"/> (3).
+    /// </summary>
+    public ushort FormatVersion { get; init; }
+
+    /// <summary>True when <see cref="FormatVersion"/> is the value the mount path requires (3).</summary>
+    public bool IsSupportedFormatVersion => FormatVersion == ProsperoPkgLayout.FihRequiredFormatVersion;
 
     /// <summary>Offset of the shared encrypted PFS image within the finalized file (FIH offset 0x10).</summary>
     public ulong PfsImageOffset { get; init; }

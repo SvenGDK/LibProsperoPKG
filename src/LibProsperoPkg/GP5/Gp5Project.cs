@@ -33,8 +33,8 @@ public enum Gp5VolumeType
 }
 
 /// <summary>
-/// The structural style a GP5 project uses to describe its contents. The reference tool understands
-/// two equivalent layouts:
+/// The structural style a GP5 project uses to describe its contents. Two
+/// equivalent layouts exist:
 /// <list type="bullet">
 /// <item><see cref="Normal"/> — a single <c>&lt;rootdir&gt;</c> with a <c>src_path</c> (and optional
 /// exclude masks) that the tool walks recursively, preceded by <c>&lt;global_exclude&gt;</c>.</item>
@@ -106,7 +106,7 @@ public sealed class Gp5Project
     public bool ShouldSerializeFiles() => Files.Count > 0;
     public bool ShouldSerializeFolders() => Folders.Count > 0;
 
-    /// <summary>The XML namespaces written for a GP5 project (none, matching the reference tool).</summary>
+    /// <summary>The XML namespaces written for a GP5 project (none).</summary>
     private static readonly XmlSerializerNamespaces EmptyNamespaces =
         new([XmlQualifiedName.Empty]);
 
@@ -126,7 +126,7 @@ public sealed class Gp5Project
         };
 
         // Only full applications carry PlayGo chunk/scenario information. Additional
-        // content packages omit it entirely, matching reference projects.
+        // content packages omit it entirely.
         if (type is Gp5VolumeType.prospero_app or Gp5VolumeType.prospero_patch)
         {
             project.Volume.ChunkInfo = new Gp5ChunkInfo
@@ -298,7 +298,7 @@ public sealed class Gp5Scenario
 
 /// <summary>
 /// The <c>&lt;rootdir&gt;</c> element of the <see cref="Gp5Layout.Normal"/> layout: a single source
-/// directory the reference tool walks recursively, with optional directory- and file-exclude masks.
+/// directory that is walked recursively, with optional directory- and file-exclude masks.
 /// The explicit per-file/per-folder listing of the flat layout lives in
 /// <see cref="Gp5Project.Files"/> / <see cref="Gp5Project.Folders"/>, not here.
 /// </summary>

@@ -1,19 +1,17 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
 // Copyright (C) 2026 SvenGDK
 //
-// PS5 finalized-image / CNT digest algorithms — Validated byte-exact against
-// three reference debug packages (DebugSettings.pkg, Downloads.pkg, InternetBrowser.pkg).
+// PS5 finalized-image / CNT digest algorithms.
 //
-// The single digest primitive is SHA3-256, not SHA-256. Every named digest below is selected by
-// matching the algorithm output to the bytes embedded in the reference packages and to the values the
-// reference metadata records in sce_suppl/.../pfsimage.xml. Each is reproducible off-console because it
-// hashes a plaintext-accessible region:
+// The single digest primitive is SHA3-256, not SHA-256. Each named digest below hashes a
+// plaintext-accessible region and is reproducible off-console. Each is recorded in
+// sce_suppl/.../pfsimage.xml:
 //
 // game-digest == sblock-digest = SHA3-256( plaintext outer superblock block, 0x10000 bytes )
 // Stored in the FIH header at 0x30, 0x70 and 0xD0 (three copies), in the CNT image-digest
 // block (entry 0x0080) at +0x40 and +0x180, and in pfsimage.xml as <game-digest> and
 // <sblock-digest>. The FIH locates the superblock via its own offset/size fields at
-// 0x20 (absolute superblock offset) / 0x28 (0x10000). Validated on all three packages: the
+// 0x20 (absolute superblock offset) / 0x28 (0x10000). The
 // superblock is the data-first outer-PFS metadata block (magic 0x0b2a3301 @ +8, version 2),
 // left PLAINTEXT on disk, so SHA3-256 of it reproduces the stored digest exactly.
 //
@@ -21,22 +19,20 @@
 // body-digest = SHA3-256( CNT body region [body-offset .. body-offset+body-size) )
 // <per-entry digest> = SHA3-256( CNT entry payload ) for every CNT entry, stored in the CNT
 // digest table (entry id 0x0001, count*32 bytes); the slot for the digest-table entry itself
-// is left all-zero (it cannot hash itself). Validated byte-exact for all 13 entries of all
-// three packages (39/39). param-digest is exactly this for the param.json entry (id 0x2000).
+// is left all-zero (it cannot hash itself). This covers all 13 CNT entries. param-digest is
+// exactly this for the param.json entry (id 0x2000).
 //
 // package-digest = SHA3-256( CNT[0 : 0xFE0] ) stored at CNT+0xFE0
 // The package-digest is a self-seal over the whole CNT header: SHA3-256 of the first 0xFE0
-// bytes of the \x7fCNT container, written back into the header at +0xFE0. It is the exact value
-// the tool calls the "Package Digest" (image information output) and that pfsimage.xml records as
-// <package-digest>. Validated byte-exact on all four reference debug packages (Downloads,
-// DebugSettings, InternetBrowser, DebugSettingsPS5). Because it seals the CNT header, it follows
+// bytes of the \x7fCNT container, written back into the header at +0xFE0. pfsimage.xml records it
+// as <package-digest>. Because it seals the CNT header, it follows
 // automatically once that header is byte-exact — the CNT builder produces it directly via
-// ComputePackageDigest (the slot used SHA-256 before; PS5 is SHA3-256). See ComputePackageDigest.
+// ComputePackageDigest (SHA3-256). See ComputePackageDigest.
 //
 // CNT-header rollup digest = SHA3-256( CNT[off : off+size] ) stored at CNT+0x100
-// where off = BE64 @ (CNT+0x20) and size = BE32 @ (CNT+0x1c) (= 0x2000 / 0x18A0 on every sample),
+// where off = BE64 @ (CNT+0x20) and size = BE32 @ (CNT+0x1c) (= 0x2000 / 0x18A0),
 // i.e. SHA3-256 of the CNT digest/entry-table region. This is what the CNT sub-region verifier
-// recomputes and checks. Validated byte-exact 4/4. See
+// recomputes and checks. See
 // ComputeCntHeaderRollupDigest.
 //
 // content-digest = SHA3-256( CNT[0x40:0x78] ‖ game-digest(32) ‖ major-param-digest(32, all-zero) )
@@ -44,40 +40,39 @@
 // 12 reserved zero bytes, drm_type (u32 @0x70) and content_type (u32 @0x74). The game-digest is
 // appended when the package carries a game image (it does for nwonly); the major-param-digest slot
 // is 32 zero bytes. Stored in the CNT GeneralDigests block (entry id 0x0080) at +0x20 and recorded
-// as pfsimage.xml <content-digest>. Validated byte-exact on the reference packages.
+// as pfsimage.xml <content-digest>.
 // header-digest = SHA3-256( CNT[0x00:0x40] ‖ CNT[0x400:0x480] )
 // The CNT header prefix (0x40 bytes) concatenated with the 0x80-byte mount descriptor at CNT+0x400.
-// ★ The mount descriptor's pfs_image_offset field (CNT+0x410) must be the FINAL FIH-relative value
+// The mount descriptor's pfs_image_offset field (CNT+0x410) must be the FINAL FIH-relative value
 // 0x10000 (the value the FIH writer stamps into the embedded CNT), not the standalone physical
 // image offset — see FihRelativeImageOffset and the builder's @0x410 override. Stored at GeneralDigests
-// +0x60; recorded as pfsimage.xml <header-digest>. Validated byte-exact on the reference packages.
+// +0x60; recorded as pfsimage.xml <header-digest>.
 // system-digest = SHA3-256( concat of per-entry digests of the system-media CNT entries, ascending id )
 // e.g. SHA3-256( SHA3-256(icon0.png payload) ‖ SHA3-256(icon0.dds payload) ). Stored at GeneralDigests
-// +0x80; pfsimage.xml <system-digest>. Validated byte-exact (icon0.png id 0x1200 + icon0.dds id 0x1280).
+// +0x80; pfsimage.xml <system-digest> (icon0.png id 0x1200 + icon0.dds id 0x1280).
 // playgo-digest = SHA3-256( concat of per-entry digests of the playgo CNT entries, ascending id )
 // SHA3-256( SHA3-256(playgo-chunk.dat) ‖ SHA3-256(playgo-hash-table.dat) ‖ SHA3-256(playgo-ficm.dat) ).
-// Stored at GeneralDigests +0xE0; Validated byte-exact (ids 0x1001 / 0x2010 / 0x2011).
+// Stored at GeneralDigests +0xE0 (ids 0x1001 / 0x2010 / 0x2011).
 // param-digest = SHA3-256( param.json CNT entry payload ) (= the per-entry digest of id 0x2000).
-// Stored at GeneralDigests +0xC0. Validated byte-exact.
-// target-digest = copy of game-digest. Stored at GeneralDigests +0x180 (slot 11). Validated byte-exact.
+// Stored at GeneralDigests +0xC0.
+// target-digest = copy of game-digest. Stored at GeneralDigests +0x180 (slot 11).
 //
-// The GeneralDigests block (CNT entry id 0x0080, found in the CNT at the entry's data offset, e.g. CNT+0x3380
-// on Downloads): u16 unk1 = 0xD256, u16 type = 0x0102, 24 reserved bytes, u32 BE set_digests, then 14 × 32-byte
+// The GeneralDigests block (CNT entry id 0x0080, found in the CNT at the entry's data offset): u16 unk1
+// = 0xD256, u16 type = 0x0102, 24 reserved bytes, u32 BE set_digests, then 14 × 32-byte
 // slots {Content, Game, Header, System, MajorParam, Param, Playgo, Trophy, Manual, Keymap, Origin, Target,
 // OriginGame, TargetGame}. For the nwonly debug package set_digests = 0x10DE (bits Content|Game|Header|System|
 // Param|Playgo|Target) and the entry length is 0x1E0 (0x20 + 14×0x20). Every populated slot above reproduces
 // byte-exact from the finished on-disk CNT — the digests are computed from plaintext-accessible CNT header
 // regions and CNT entry payloads, so the whole block is producible by a managed library.
 //
-// Note. An earlier investigation concluded these three were "not byte-matched off-console" after a
-// brute force hashed whole 0x10000 blocks and whole extracted files (0 hits). That search used the wrong
-// preimage shape: content/header are SHA3 of specific CNT-header sub-slices, and system/playgo are SHA3 of a
-// concatenation of per-entry digests — neither is a single block or file, so a block/file brute force can never
-// find them. The structured preimages above were subsequently recovered and Validated byte-exact directly
-// against the embedded \x7fCNT of the reference packages. The only remaining FIH slot that is best-effort is 0xB0
-// (a nested-image-content hash); a full from-scratch build cannot byte-match a specific reference because
-// the managed Kraken inner encoder is not byte-identical to the reference (different pfs_image ⇒ different superblock
-// ⇒ different game/content/header/package digests). The formulas here are exact and self-consistent.
+// Note. A block/file hash search (whole 0x10000 blocks and whole extracted files) cannot recover the
+// content/header/system/playgo digests: content/header are SHA3 of specific CNT-header sub-slices, and
+// system/playgo are SHA3 of a concatenation of per-entry digests — none is a single block or file. The
+// structured preimages above are computed directly from the plaintext CNT header regions and entry
+// payloads. The only FIH slot that is best-effort is 0xB0 (a nested-image-content hash); a full
+// from-scratch build cannot byte-match a specific input because the managed Kraken inner encoder is not
+// byte-identical to any given encoder (different pfs_image ⇒ different superblock ⇒ different
+// game/content/header/package digests). The formulas here are exact and self-consistent.
 
 using System;
 using System.Buffers.Binary;
@@ -291,7 +286,7 @@ public static class ProsperoImageDigests
     /// Builds the CNT per-entry digest table (entry id 0x0001): <c>entries.Count * 32</c> bytes where
     /// slot k = SHA3-256(entries[k].payload), except the slot belonging to the digest-table entry
     /// itself (id == <see cref="DigestTableEntryId"/>) is left all-zero. Entries must be supplied in
-    /// their on-disk order. Validated byte-exact against all three reference packages.
+    /// their on-disk order.
     /// </summary>
     public static byte[] BuildEntryDigestTable(IReadOnlyList<(int Id, ReadOnlyMemory<byte> Payload)> entries)
     {
@@ -310,9 +305,8 @@ public static class ProsperoImageDigests
     /// <summary>
     /// Computes the package-digest = SHA3-256 of the first <see cref="PackageDigestRegionSize"/> (0xFE0)
     /// bytes of the \x7fCNT container. This is the value stored back into the CNT header at
-    /// <see cref="PackageDigestStoredOffset"/>, surfaced by the tool as the "Package Digest" and recorded
-    /// as <c>pfsimage.xml &lt;package-digest&gt;</c>. It is a self-seal: it follows automatically once the
-    /// CNT header is byte-exact. Validated byte-exact against all four reference debug packages.
+    /// <see cref="PackageDigestStoredOffset"/> and recorded as <c>pfsimage.xml &lt;package-digest&gt;</c>.
+    /// It is a self-seal: it follows automatically once the CNT header is byte-exact.
     /// </summary>
     /// <param name="cnt">The CNT container bytes (at least 0xFE0 long; only [0:0xFE0] is read).</param>
     public static byte[] ComputePackageDigest(ReadOnlySpan<byte> cnt)
@@ -326,7 +320,7 @@ public static class ProsperoImageDigests
     /// Computes the CNT-header rollup digest = SHA3-256(CNT[off : off+size]) where <c>off</c> is the BE64
     /// at CNT+0x20 and <c>size</c> is the BE32 at CNT+0x1c (the CNT digest/entry-table region). This is the
     /// value stored at <see cref="CntHeaderRollupStoredOffset"/> and recomputed by the CNT sub-region
-    /// verifier. Validated byte-exact against all four reference debug packages.
+    /// verifier.
     /// </summary>
     public static byte[] ComputeCntHeaderRollupDigest(ReadOnlySpan<byte> cnt)
     {

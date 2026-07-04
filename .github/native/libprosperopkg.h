@@ -9,7 +9,9 @@
  * success. When the buffer is too small they return the negative of the required size
  * (including the terminator), so a caller can size a buffer and retry. Status functions return
  * 0 on success and a negative value on failure; call lpp_last_error for a description. Detection
- * predicates (lpp_is_*) return 1 or 0 and never fail.
+ * predicates (lpp_is_*) return 1 or 0 and never fail. Struct-output functions fill a
+ * caller-provided struct (fixed char arrays inside are UTF-8 and NUL-terminated) and return 0 on
+ * success or a negative value on failure.
  */
 
 #ifndef LIBPROSPEROPKG_H
@@ -22,7 +24,7 @@ extern "C" {
 #endif
 
 /* ABI version of the exported surface (see lpp_abi_version). Bumped when exports change. */
-#define LPP_ABI_VERSION 2
+#define LPP_ABI_VERSION 3
 
 /* Build mode (build `mode`). */
 #define LPP_MODE_APPLICATION                 0
@@ -57,6 +59,19 @@ extern "C" {
 #define LPP_APP_TYPE_DEMO                  3
 #define LPP_APP_TYPE_FREEMIUM              4
 
+/* Patch kind (lpp_npdrm_content_info.patch_kind). */
+#define LPP_PATCH_NONE        0
+#define LPP_PATCH_FIRST       1
+#define LPP_PATCH_SUBSEQUENT  2
+#define LPP_PATCH_DELTA       3
+#define LPP_PATCH_CUMULATIVE  4
+
+/* Authentication-info authority category (lpp_read_auth_info `category`). */
+#define LPP_AUTH_CATEGORY_UNKNOWN     0x00
+#define LPP_AUTH_CATEGORY_FAKE        0x31
+#define LPP_AUTH_CATEGORY_GENUINE     0x45
+#define LPP_AUTH_CATEGORY_PRIVILEGED  0x48
+
 /*
  * Full option set for lpp_build_package_ex. Zero-initialize the whole struct, set struct_size to
  * sizeof(lpp_build_options), then fill the fields you need. Any string pointer may be NULL; a NULL
@@ -89,6 +104,55 @@ typedef struct lpp_build_options {
     const char* version;            /* NULL/empty -> "01.00" */
     const char* application_drm_type; /* NULL -> derived from application_type */
 } lpp_build_options;
+
+/*
+ * Projected NpDrm content-info filled by lpp_read_npdrm_content_info. Zero-initialize before the
+ * call; on return content_id and title_id are UTF-8, NUL-terminated.
+ */
+typedef struct lpp_npdrm_content_info {
+    int32_t  struct_size;       /* sizeof(lpp_npdrm_content_info) */
+    uint32_t drm_type;
+    uint32_t content_type;
+    uint32_t content_flags;
+    int32_t  patch_kind;        /* LPP_PATCH_* */
+    int32_t  is_patch;          /* 0/1 */
+    int32_t  is_nested;         /* 0/1 */
+    int32_t  is_finalized;      /* 0/1 */
+    int64_t  container_offset;
+    char     content_id[64];
+    char     title_id[16];
+} lpp_npdrm_content_info;
+
+/*
+ * Package inspection result filled by lpp_inspect_package. Zero-initialize before the call; on
+ * return content_id is UTF-8, NUL-terminated (empty when the package carries no content id).
+ */
+typedef struct lpp_package_info {
+    int32_t struct_size;        /* sizeof(lpp_package_info) */
+    int32_t package_type;       /* LPP_TYPE_* */
+    int32_t is_retail;          /* 0/1 */
+    int32_t outer_encrypted;    /* 0/1 */
+    int32_t requires_key;       /* 0/1 (a supplied key is required to extract) */
+    int32_t reserved;
+    int64_t pfs_image_offset;
+    int64_t pfs_image_size;
+    char    content_id[64];
+} lpp_package_info;
+
+/*
+ * Multi-content RIF summary filled by lpp_read_rif_summary. Zero-initialize before the call; on
+ * return app_content_id and service_id are UTF-8, NUL-terminated.
+ */
+typedef struct lpp_rif_summary {
+    int32_t struct_size;        /* sizeof(lpp_rif_summary) */
+    int32_t record_count;       /* n_rif */
+    int32_t has_app;            /* 0/1 */
+    int32_t additional_count;   /* n_ac */
+    int64_t expected_size;
+    int64_t actual_size;
+    char    app_content_id[64];
+    char    service_id[16];
+} lpp_rif_summary;
 
 /* Returns a pointer to a static, NUL-terminated version string. */
 const char* lpp_version(void);
@@ -256,6 +320,94 @@ int lpp_application_drm_type(int application_type, char* out_buffer, int capacit
  * Unknown or empty input yields LPP_APP_TYPE_NOT_SPECIFIED (0).
  */
 int lpp_parse_application_type(const char* name);
+
+/*
+ * Reads a SELF authentication-info sidecar (a 0x88-byte *.auth_info record). Any output pointer
+ * may be NULL; `capabilities4` and `attributes4` each point to four 64-bit words, and `category`
+ * receives the authority category (LPP_AUTH_CATEGORY_*). Returns 0 on success, or -1 on failure
+ * (call lpp_last_error).
+ */
+int lpp_read_auth_info(const char* path, uint64_t* paid,
+                       uint64_t* capabilities4, uint64_t* attributes4, int* category);
+
+/*
+ * Builds a SELF authentication-info sidecar from supplied fields and writes it to `path`.
+ * `capabilities4` and `attributes4` each point to four 64-bit words, or may be NULL to write
+ * zeroes. Returns 0 on success, or -1 on failure (call lpp_last_error).
+ */
+int lpp_write_auth_info(const char* path, uint64_t paid,
+                        const uint64_t* capabilities4, const uint64_t* attributes4);
+
+/*
+ * Reads and projects the NpDrm content-info of the package at `path` into `out_info`. Returns 0
+ * on success, or -1 on failure (call lpp_last_error).
+ */
+int lpp_read_npdrm_content_info(const char* path, lpp_npdrm_content_info* out_info);
+
+/*
+ * Inspects the package at `path` without a key, filling `out_info` (package type, retail flag,
+ * outer-PFS offset and size, encryption state, whether a supplied key is required, and the content
+ * id when present). Returns 0 on success, or -1 on failure (call lpp_last_error).
+ */
+int lpp_inspect_package(const char* path, lpp_package_info* out_info);
+
+/*
+ * Extracts a package to `output_directory`, deriving the outer key from `passcode` (and the
+ * package's own content id). A NULL or empty passcode uses the 32-zero default. Set `extract_outer`
+ * non-zero to also write the outer metadata files. Returns the number of extracted files on
+ * success, or -1 on failure (call lpp_last_error).
+ */
+int lpp_extract_package(const char* path, const char* output_directory,
+                        const char* passcode, int extract_outer);
+
+/*
+ * Extracts a package to `output_directory` using a supplied 32-byte outer key (`ekpfs32`). Set
+ * `extract_outer` non-zero to also write the outer metadata files. Returns the number of extracted
+ * files on success, or -1 on failure (call lpp_last_error).
+ */
+int lpp_extract_package_ekpfs(const char* path, const char* output_directory,
+                              const unsigned char* ekpfs32, int extract_outer);
+
+/*
+ * Counts the records in a RIF license file (n_rif). Returns the record count on success, or -1 on
+ * failure (call lpp_last_error).
+ */
+int lpp_rif_record_count(const char* path);
+
+/*
+ * Copies the content id of the first record in a RIF file into `out_buffer` as UTF-8. Returns the
+ * number of bytes written, or a negative value (call lpp_last_error).
+ */
+int lpp_read_rif_content_id(const char* path, char* out_buffer, int capacity);
+
+/*
+ * Summarizes a multi-content RIF file into `out_summary`. `app_title_id` may be NULL to skip the
+ * application match. Returns 0 on success, or -1 on failure (call lpp_last_error).
+ */
+int lpp_read_rif_summary(const char* path, const char* app_title_id, lpp_rif_summary* out_summary);
+
+/*
+ * Runs the structural acceptance-gate checks on the package at `path`. `expected_content_id` may be
+ * NULL to skip the content-id match. The pass, warning and fail counts are written to the output
+ * pointers when non-NULL. Returns 1 when accepted (no failing check), 0 when rejected, or -1 on
+ * error (call lpp_last_error).
+ */
+int lpp_validate_package(const char* path, const char* expected_content_id,
+                         int* pass_count, int* warn_count, int* fail_count);
+
+/*
+ * Reassembles a split disc-backup package (from an app.json path or a directory that contains one)
+ * into a single package file at `output_path`. Returns the number of bytes written on success, or
+ * -1 on failure (call lpp_last_error).
+ */
+long long lpp_disc_backup_reassemble(const char* manifest_path, const char* output_path);
+
+/*
+ * Verifies a split disc-backup package. The package-digest and chunk-CRC results are written to the
+ * output pointers (1 = match, 0 = mismatch) when non-NULL. Returns 0 on success, or -1 on failure
+ * (call lpp_last_error).
+ */
+int lpp_disc_backup_verify(const char* manifest_path, int* digest_ok, int* chunk_crc_ok);
 
 #ifdef __cplusplus
 }

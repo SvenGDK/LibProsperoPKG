@@ -21,7 +21,7 @@ public enum ProsperoPkgType
 
     /// <summary>
     /// Finalized retail image (<c>\x7FFIH</c>, signed byte 0x80): a full package as submitted with the
-    /// reference tools. The signed byte at offset 0x05 is what distinguishes it from a debug image.
+    /// finalized toolchain. The signed byte at offset 0x05 is what distinguishes it from a debug image.
     /// </summary>
     FullRetail,
 
@@ -61,6 +61,12 @@ public static class ProsperoPkgLayout
     /// <summary>FIH header offset of the signed byte (0x80 = official, 0x00 = debug).</summary>
     public const int FihSignedByteOffset = 0x05;
 
+    /// <summary>FIH header offset of the format version (little-endian u16).</summary>
+    public const int FihFormatVersionField = 0x06;
+
+    /// <summary>The finalized-image format version the console mount path requires.</summary>
+    public const ushort FihRequiredFormatVersion = 3;
+
     /// <summary>FIH header offset of the shared encrypted PFS image offset (little-endian u64).</summary>
     public const int FihPfsImageOffsetField = 0x10;
 
@@ -70,8 +76,8 @@ public static class ProsperoPkgLayout
     /// <summary>FIH header offset of the embedded CNT container offset (little-endian u64).</summary>
     public const int FihEmbeddedCntOffsetField = 0x58;
 
-    // ---- Outer-PFS accounting fields (little-endian; validated from the FIH writer output
-    // and cross-checked against three reference debug packages). These describe
+    // ---- Outer-PFS accounting fields (little-endian; derived from the FIH writer output
+    // and cross-checked across debug packages). These describe
     // the inner pfs_image.dat / metadata block split of the shared outer-PFS image, not the
     // embedded CNT. Invariant: FihInnerImageBlockCountField + FihMetaBlockCountField ==
     // pfsImageSize / FihHeaderRegionSize. ----

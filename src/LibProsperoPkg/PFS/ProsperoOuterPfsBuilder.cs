@@ -3,18 +3,18 @@
 //
 // PS5 *finalized-image* outer-PFS STRUCTURE generator for the
 // `nwonly` package. This assembles the plaintext outer-PFS
-// filesystem image (the 11-block "data-first" layout in the reference package) from the two outer
+// filesystem image (the 11-block "data-first" layout) from the two outer
 // files that an nwonly image always contains - `pfs_image.dat` (the nested inner PFS image) and
 // `naps_pkg_layout.dat` - plus the fixed metadata inodes (super-root dir, inode_flat_path_table,
-// uroot dir), then signs it (plain SHA3-256 per block + superblock ICV) and applies the validated
+// uroot dir), then signs it (plain SHA3-256 per block + superblock ICV) and applies the
 // AES-XTS block encryption.
 //
-// Every byte format here is validated against the reference package's outer image (files/outer_full_correct.bin), block-by-block:
+// Every byte format here is modeled block-by-block:
 //
 // * Layout (data-first): blocks [0..D-1] = file data (file0 then file1 ...), block D = superblock
 // (plaintext), D+1 = inode table, D+2 = super-root dirents, D+3 = inode_flat_path_table (FLT),
-// D+4 = uroot dirents. For the reference package D = 6 (5 blocks pfs_image.dat + 1 block naps),
-// giving the validated 11-block image.
+// D+4 = uroot dirents. With D = 6 (5 blocks pfs_image.dat + 1 block naps),
+// giving the 11-block image.
 // * Inodes (fixed template): 0 = super-root dir (mode 0x416d, flags 0x2000c), 1 =
 // inode_flat_path_table file (mode 0x816d, flags 0x2000c), 2 = uroot dir (mode 0x416d, nlink 3,
 // flags 0xc), 3.. = the outer files in order (mode 0x816d, flags 0xd).
@@ -31,8 +31,7 @@
 // is left plaintext. See ProsperoOuterPfsImage.
 //
 // The FLT path-hash is a custom 3-lane reduced-Keccak permutation (round constant 0x8000000080008081)
-// with two fixed 64-bit seeds, validated against reference output and
-// byte-exact for both reference names ("pfs_image.dat", "naps_pkg_layout.dat").
+// with two fixed 64-bit seeds, byte-exact for the file names ("pfs_image.dat", "naps_pkg_layout.dat").
 #nullable enable
 using System;
 using System.Buffers.Binary;
@@ -63,7 +62,7 @@ public sealed class ProsperoOuterFile
 
     /// <summary>
     /// Whether this file's data blocks are AES-XTS encrypted as <em>signed</em> blocks (sector =
-    /// bit 47 | block index). In the reference package <c>pfs_image.dat</c> is plain data and
+    /// bit 47 | block index). <c>pfs_image.dat</c> is plain data and
     /// <c>naps_pkg_layout.dat</c> is signed.
     /// </summary>
     public bool Signed { get; init; }
@@ -71,14 +70,14 @@ public sealed class ProsperoOuterFile
 
 /// <summary>
 /// Build parameters for the outer-PFS structure generator. The timestamp/seed defaults reproduce
-/// the reference package byte-exact; a reference build supplies the current time and a fresh seed.
+/// the default image byte-exact; a fresh build supplies the current time and a fresh seed.
 /// </summary>
 public sealed class ProsperoOuterPfsBuildParameters
 {
-    /// <summary>POSIX seconds stamped into every inode time field (default = reference package).</summary>
+    /// <summary>POSIX seconds stamped into every inode time field.</summary>
     public long TimestampSeconds { get; init; } = 0x6A31A5B9;
 
-    /// <summary>Nanosecond fraction stamped into every inode time field (default = reference package).</summary>
+    /// <summary>Nanosecond fraction stamped into every inode time field.</summary>
     public uint TimestampNanoseconds { get; init; } = 0x14DC9380;
 
     /// <summary>The 16-byte crypt seed written at superblock+0x370 (and used for key derivation).</summary>
@@ -106,8 +105,7 @@ public sealed class ProsperoOuterPfsBuildResult
 
 /// <summary>
 /// Assembles, signs, and encrypts the plaintext outer-PFS image of a PS5 nwonly finalized package.
-/// See the file header for the full, validated byte layout; every piece is pinned to the
-/// reference package by the external byte-exact harness.
+/// See the file header for the full byte layout.
 /// </summary>
 public static class ProsperoOuterPfsBuilder
 {
@@ -121,14 +119,14 @@ public static class ProsperoOuterPfsBuilder
     // Number of fixed metadata inodes that precede the file inodes (super-root, FLT, uroot).
     private const int MetadataInodeCount = 3;
 
-    // Inode mode / flag constants (validated against the reference inode table).
+    // Inode mode / flag constants.
     private const ushort ModeDir = 0x416D;   // S_IFDIR | 0555
     private const ushort ModeFile = 0x816D;  // S_IFREG | 0555
     private const uint FlagsInternalMeta = 0x2000C; // @internal | unk2 | unk3 (super-root dir + FLT file)
     private const uint FlagsDir = 0x000C;           // unk2 | unk3 (uroot dir)
     private const uint FlagsFile = 0x000D;          // compressed | unk2 | unk3 (data files)
 
-    // --- \x7fFLT custom reduced-Keccak path hash (validated against reference output) ---
+    // --- \x7fFLT custom reduced-Keccak path hash ---
     private const ulong FltRoundConstant = 0x8000000080008081UL;
     private const ulong FltSeed0 = 0x92CA8AAB26A24F51UL; // written at superblock-table+0x18 -> FLT @0x30
     private const ulong FltSeed1 = 0x09BBB761A41BC44DUL; // written at superblock-table+0x20 -> FLT @0x38
@@ -449,7 +447,6 @@ public static class ProsperoOuterPfsBuilder
     /// <summary>
     /// The \x7fFLT path hash: a custom 3-lane reduced-Keccak permutation over the UPPERCASED ASCII
     /// file name, with two fixed 64-bit seeds and round constant 0x8000000080008081.
-    /// Validated byte-exact for the reference names.
     /// </summary>
     internal static ulong FltPathHash(string name)
     {

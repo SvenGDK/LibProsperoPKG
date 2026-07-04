@@ -24,7 +24,7 @@ namespace LibProsperoPkg.PKG;
 /// <summary>
 /// PNG-to-DDS (BC7) re-encoder for the PS5 <c>sce_sys</c> icon/pic media. Produces a
 /// DX10 <c>DXGI_FORMAT_BC7_UNORM</c> DDS with no mipmaps, matching the surface dimensions and
-/// header layout of the reference <c>icon0.dds</c> / <c>pic0.dds</c> / <c>pic1.dds</c> / <c>pic2.dds</c>.
+/// header layout of the standard <c>icon0.dds</c> / <c>pic0.dds</c> / <c>pic1.dds</c> / <c>pic2.dds</c>.
 /// </summary>
 public static class ProsperoDdsEncoder
 {

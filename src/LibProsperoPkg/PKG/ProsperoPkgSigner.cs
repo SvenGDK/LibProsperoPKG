@@ -17,7 +17,7 @@
 // is usable.
 //
 // What is not done here: a fully accepted retail image additionally depends on
-// reference-only secrets that cannot be reproduced here. This class supplies the signing/key
+// console-held secrets that cannot be reproduced here. This class supplies the signing/key
 // primitives the write path consumes, and is fully self-validated in isolation.
 
 using LibProsperoPkg.Keys;
@@ -30,7 +30,7 @@ namespace LibProsperoPkg.PKG;
 /// <summary>
 /// PS5 PKG-metadata signing and PFS key-derivation primitives backed by the embedded
 /// PS5 key material. See the file header for the boundary between what is
-/// verifiable here and what additionally depends on reference-only secrets.
+/// verifiable here and what additionally depends on console-held secrets.
 /// </summary>
 public static class ProsperoPkgSigner
 {

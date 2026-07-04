@@ -6,7 +6,7 @@
 // A shuffle is a reversible structure-of-arrays de-interleave applied to a block before Kraken
 // compression: a fixed-size vector (8 or 16 bytes) is split into fields, and every field is grouped
 // together across all vectors so that similar bytes become adjacent and compress better. The exact
-// field decompositions match the target format and are validated against the documented ASCII examples.
+// field decompositions match the target format.
 #nullable enable
 using System;
 

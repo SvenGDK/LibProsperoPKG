@@ -2,7 +2,7 @@
 
 This document summarizes the public surface of LibProsperoPkg, grouped by namespace. Every
 public type and member carries XML documentation, so IntelliSense and the generated
-documentation file are the authoritative reference; this page is the orientation map.
+documentation file give the authoritative detail; this page is the orientation map.
 
 ---
 
@@ -18,7 +18,7 @@ The primary entry point.
 | `BuildInnerPfsLayout(...)` | Lay a folder out into a plaintext inner-PFS image. Returns `ProsperoPfsLayoutResult`. |
 | `BuildInnerImage(...)` | Run the full inner-image pipeline (plaintext / encrypted / zlib-compressed / Kraken-compressed). Returns the written image path. |
 | `EncryptPfsImage(...)` | AES-XTS-encrypt a prepared plaintext inner-PFS image in place. Returns `ProsperoPfsImageResult`. |
-| `CompareContainers(referencePkg, candidatePkg)` | Compare two packages field by field. Returns the list of differences. |
+| `CompareContainers(...)` | Compare two packages field by field. Returns the list of differences. |
 | `ComposeContentId(publisher, titleId, label)` | Build a well-formed 36-char content id. |
 | `IsValidContentId` / `IsValidTitleId` | Validate identifiers. |
 | `VolumeTypeForMode(mode)` | Map a `ProsperoPackageMode` to the GP5 `Gp5VolumeType`. |
@@ -85,6 +85,19 @@ The primary entry point.
 - **`ProsperoPkgBuildProperties`** and **`ProsperoVolumeType`** drive the low-level builder.
 - **`ProsperoPkgLayout`** and **`ProsperoEntryId`** describe the container layout and entry ids.
 
+### Reading and extracting existing packages
+
+| Type | Purpose |
+|---|---|
+| `ProsperoPackageExtractor` (static) | Extract the application filesystem from a finalized image end to end (finalized image → outer PFS → `pfs_image.dat` PFSC → inner PFS → files). `Inspect(path)` reports type, retail flag, outer-PFS offset/size, whether the outer PFS is encrypted, and whether a supplied key is required — without a key. `ListFiles(path, key)` enumerates the inner filesystem without writing. `Extract(...)` (two overloads) writes the files and returns a `ProsperoPackageManifest`. Supporting records: `ProsperoExtractionOptions`, `ProsperoPackageExtractionInfo`, `ProsperoPackageManifest`. |
+| `ProsperoExtractionKey` (sealed) | Key material for the outer PFS. `FromPasscode(passcode)` / `FromPasscode(contentId, passcode)` derive the outer EKPFS from public inputs (SHA-256 and SHA3-256 candidates; the extractor auto-selects whichever opens the image), `FromEkpfs(bytes)` takes a supplied 32-byte image key, `None` attempts a plaintext outer PFS. `ResolveEkpfsCandidates`, `Kind` (`ProsperoExtractionKeyKind`), `ContentId`, `Passcode`, `Ekpfs`. |
+| `ProsperoPkgValidator` (static) | Check a package against the structural acceptance gate the mount path enforces. `Validate(path, expectedContentId=null)` / `Validate(ProsperoPkg, expectedContentId=null)` return a `ProsperoAcceptanceReport` of named `Pass` / `Warning` / `Fail` checks (`ProsperoAcceptanceCheck`, `ProsperoCheckStatus`) with `Accepted` and `HasWarnings` roll-ups. |
+
+A finalized retail image (signed byte `0x80`) encrypts the whole outer PFS including its
+superblock; its image key arrives through the console entitlement path and is not derivable from
+public inputs. `Inspect` reports this (`RequiresSuppliedKey = true`) and `Extract` refuses with a
+clear message rather than returning a fabricated result.
+
 ---
 
 ## `LibProsperoPkg.PFS` — filesystem image
@@ -100,6 +113,7 @@ The primary entry point.
 | `ProsperoPfsc` | High-level PFSC block compression. `PackFile`, `Unpack`, `IsPfsc`. |
 | `ProsperoPfscEncoder` | Lower-level PFSC container encoder. `Encode` (buffer or stream), `HeaderSize`, `ShouldSkipExecutableCompression`, with `ProsperoPfscEncoderOptions` / `ProsperoPfscEncodeStats`. |
 | `ProsperoPfscReader` | Random-access reader over a PFSC container. `Read`, `ReadSector`, `SectorSize`, `DataLength`. |
+| `ProsperoPfsExtractor` (static) | Write every file of an opened (and, if encrypted, decrypted) `ProsperoPfsReader` to a directory, PFSC-decompressing per file, confined to the output directory. `Extract(reader, outputDirectory, logger=null)`, `ListEntries(reader)`; owns `ProsperoExtractedEntry` and `ProsperoExtractionException`. This is the single-image half that `ProsperoPackageExtractor` composes twice around the middle PFSC decode. |
 
 Each high-level entry carries an options/result record pair (`ProsperoPfsLayoutOptions`/`Result`,
 `ProsperoPfsImageOptions`/`Result`, `ProsperoPfscOptions`/`Result`).
@@ -108,7 +122,8 @@ The namespace also exposes the low-level filesystem model that the builder and r
 `ProsperoPfsBuilder`, `ProsperoPfsReader`, `ProsperoPfsHeader`, `ProsperoInode`, the on-disk dinode
 records (`ProsperoDinodeD32`, `ProsperoDinodeS32`, `ProsperoDinodeS64`), `ProsperoFlatPathTable`,
 `ProsperoPfsDirent`, the filesystem-tree nodes (`ProsperoFsNode`, `ProsperoFsDir`, `ProsperoFsFile`),
-`ProsperoXtsDecryptReader`, and the supporting enums (`ProsperoDirentType`, `ProsperoInodeFlags`,
+`ProsperoXtsDecryptReader`, `ProsperoPfscWriter` (low-level PFSC header writer), and the supporting
+enums (`ProsperoDirentType`, `ProsperoInodeFlags`,
 `ProsperoInodeMode`, `ProsperoPfsMode`, `ProsperoOuterBlockKind`).
 
 ### `LibProsperoPkg.PFS.Compression` — PS5 PFSv3 Kraken codec
@@ -169,6 +184,48 @@ details of these types and are not part of the public surface. `PfsBlock` and
   `SelfExtInfo`. The high-level builder wires this in through `ProsperoBuildOptions.FakeSignSelfModules`,
   which fake-signs raw ELF modules in the source tree before packing (producing an fPKG) and restores
   the originals afterward.
+- **`ProsperoSelfAuthInfo`** — reads, validates, builds, and round-trips the SELF authentication-info
+  sidecar (`*.auth_info`), a fixed 0x88-byte record: program authority id (`paid`) at `0x00`, four
+  64-bit capability words at `0x08`, four 64-bit attribute words at `0x28`, and a 0x40-byte reserved
+  tail, all little-endian. `IsAuthInfo`, `Parse`, `Read`, `ReadFile`, `Create`, `ToBytes`, `Write`,
+  `WriteFile`; `Paid` / `AuthorityId`, `Capabilities`, `Attributes`, `Reserved`, and `Category`
+  (`ProsperoAuthorityCategory`, with `IsFakeAuthority` / `IsGenuineAuthority` / `IsPrivilegedSystem`).
+  Grant words are copied verbatim.
+
+---
+
+## `LibProsperoPkg.License` — per-title license (`rif`)
+
+| Type | Purpose |
+|---|---|
+| `ProsperoRif` (sealed) | The per-title license record (`license/rif`): a fixed `0x400`-byte structure with a big-endian header (magic `RIF\0`, version, flags, the `QPaC` format tag, expiry, a 36-byte content id) and a 448-byte encrypted key blob at `0x240`. `Parse` / `Read` decode one record; `ReadAll` / `WriteAll` handle a multi-title file (one record per sub-title); `Create(contentId, keyBlob=null, expiry)` builds a structural record (copying a supplied key blob verbatim or leaving it zero); `ToBytes` / `Write` serialize; `Validate`. Exposes `ContentId`, `TitleId`, `ServiceLabel`, `Expiry` / `IsNonExpiring`, `HasKeyBlob`. |
+| `ProsperoRifSet` (sealed) | A whole license file as the ordered set of records. `ReadFile` / `Read` / `FromRecords`, `Validate` (non-empty, whole-file size a positive multiple of `0x400`, per-record validity), `Summarize(appTitleId)` → `ProsperoRifSetSummary` (`n_rif`, per-record `ServiceID`, `has_app`, `n_ac`, size), `Describe`. |
+| `ProsperoEntitlementKey` (sealed) | The 128-bit content key (`entitlement_key`) the builder accepts as an alternative to a passcode. `FromBytes`, `ParseHex` / `ToHex`, `Value`, `IsZero`, `Validate`, and `ResolveMode(passcode, entitlementKey, out mode, out error)` (`ProsperoKeyMode`) enforcing the mutual-exclusivity rule. A validated carrier for supplied material; it never derives or forges a license key body. |
+
+The 448-byte key blob at `0x240` is encrypted with per-console material and cannot be produced
+off-console. `Create` covers the structural / templated path only.
+
+---
+
+## `LibProsperoPkg.NpDrm` — content-info projection
+
+| Type | Purpose |
+|---|---|
+| `ProsperoNpDrmContentInfo` (sealed) | Projects a package header into the compact classification the mount path consumes before it accepts an image: container offset, content id, derived title id, `DrmType` (`0x70`), `ContentType` (`0x74`), `ContentFlags` (`0x78`), `IsNestedImage`, `IsFinalized`, and the decoded `PatchKind` (`ProsperoPatchKind`: `None` / `First` / `Subsequent` / `Delta` / `Cumulative`) with an `IsPatch` roll-up. `Read(path)` / `Read(stream)` parse and project; `FromPackage` projects a parsed `ProsperoPkg`; `ResolveContainerOffset` mirrors the container-offset switch on magic and version; `DeriveTitleId(contentId)`. |
+
+---
+
+## `LibProsperoPkg.DiscBackup` — split disc-backup packages
+
+| Type | Purpose |
+|---|---|
+| `ProsperoDiscBackup` (sealed) | Opens a split disc-backup package (`app_0.pkg` + `app_sc.pkg` + …) described by an `app.json` manifest and presents it as one package. `Open(path)`, `OpenPackageStream` / `ReassembleTo(stream/path, progress)`, `ReadPackage`, `ReadContentInfo`, `ComputePackageDigest` / `VerifyPackageDigest`, `ReadChunkCrc` / `VerifyChunkCrcHash` / `VerifyChunkCrcs(out mismatchChunk, progress)`, `FindImageKeyEntry`, `ExtractEntry` / `ExtractEntryBytes`. Props: `Directory`, `Manifest`, `OriginalFileSize`. |
+| `ProsperoDiscBackupManifest` (sealed) | Parses `app.json`: `NumberOfSplitFiles`, `OriginalFileSize`, `PackageDigest`, the ordered `Pieces` (`ProsperoDiscBackupPiece`: `DiscNumber`, `FileOffset`, `FileSize`, `Url`), `PlaygoChunkCrcHashValue`, `PlaygoChunkCrcUrl`. `Parse(json)`, `Read(path)`. |
+| `ProsperoConcatStream` (sealed) | A read-only, seekable stream that concatenates the piece windows without materializing a temporary file. |
+| `ProsperoPlaygoChunkCrc` (sealed) | Parses the headerless little-endian CRC-32C array (one value per 64 KiB chunk, from `app.crc`). `Parse`, `Read(path)`, `VerifyPackage(stream, out mismatchChunk, progress)`. |
+
+The EEKPFS key entry (id `0x20`) is returned as stored (encrypted); off-console key derivation from
+it is not implemented.
 
 ---
 
@@ -189,7 +246,7 @@ are exposed for advanced use.
 
 ---
 
-## Native shared library (C ABI)
+## Shared library (C ABI)
 
 The library can be published as a shared library (`.so` / `.dylib`) with a flat C export surface,
 built by the `native-linux` and `native-macos` workflows. The export source and the matching
