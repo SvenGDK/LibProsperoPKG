@@ -8,8 +8,7 @@
 // The set mirrors the fields the verify path reports over a license file: the record count
 // ("Number of Contents in RIF file" / n_rif), the per-record service label (ServiceID), the
 // expected vs actual file size (rif_size exp/act), whether an application record is present
-// (has_app) and how many of the remaining records are additional content (n_ac). See
-// Reversed/rif-format.md and Reversed/retail-drm-material.md.
+// (has_app) and how many of the remaining records are additional content (n_ac).
 
 #nullable enable
 using System;

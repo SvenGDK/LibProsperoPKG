@@ -52,6 +52,8 @@ public class ProsperoCntWriter : Util.WriterBase
         Write(hdr.body_offset);
         s.Position = 0x28;
         Write(hdr.body_size);
+        s.Position = 0x30;
+        Write(hdr.mandatory_size);
         s.Position = 0x40;
         Write(Encoding.ASCII.GetBytes(hdr.content_id)); // Length = PKG_CONTENT_ID_SIZE
         s.Position = 0x70;
@@ -86,6 +88,8 @@ public class ProsperoCntWriter : Util.WriterBase
         Write(hdr.digest_table_hash);
         s.Position = 0x160;
         Write(hdr.body_digest);
+        s.Position = 0x200;
+        Write(Encoding.ASCII.GetBytes(hdr.content_id)); // Content id copy read by the content-info query path
 
         s.Position = 0x400;
         Write(hdr.unk_0x400);

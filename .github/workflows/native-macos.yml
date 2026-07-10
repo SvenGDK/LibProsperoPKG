@@ -5,7 +5,8 @@ name: Native library (macOS)
 # time; the committed project is never modified. Each architecture builds on its own runner
 # (Intel and Apple Silicon), so no cross-compilation toolchain is required. After the build
 # the workflow verifies the exported symbol table and packages the library, header, license
-# text and a checksum manifest as an artifact.
+# text and a checksum manifest as an artifact. The workflow also publishes the desktop GUI
+# application for the same architecture into a separate GUI folder within the artifact.
 
 on:
   workflow_dispatch:
@@ -29,6 +30,7 @@ jobs:
     env:
       PROJECT: src/LibProsperoPkg/LibProsperoPkg.csproj
       PROJECT_DIR: src/LibProsperoPkg
+      GUI_PROJECT: src/GUI/LibProsperoPkg.Gui.csproj
       NATIVE_DIR: .github/native
       LICENSE_FILE: LICENSE
       NOTICE_FILE: NOTICE
@@ -41,6 +43,18 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      - name: Publish GUI application
+        shell: pwsh
+        run: |
+          $guiOut = Join-Path 'artifacts' 'GUI'
+          dotnet publish $env:GUI_PROJECT -c Release -r ${{ matrix.rid }} --self-contained true -o $guiOut --nologo
+          $dll = Join-Path $guiOut 'LibProsperoPkg.Gui.dll'
+          if (-not (Test-Path $dll)) {
+            Write-Error "GUI application was not produced at $dll"
+            Get-ChildItem -Path $guiOut -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Name }
+            exit 1
+          }
 
       - name: Inject AOT settings and export surface
         shell: pwsh

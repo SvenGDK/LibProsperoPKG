@@ -23,8 +23,7 @@ namespace LibProsperoPkg.PFS.Compression;
 /// SHA3-256 is the hash primitive used throughout the PFS compression format. Per-block
 /// hashes are taken over the <i>uncompressed</i> block bytes, which is what
 /// <see cref="ComputeBlockDigest(System.ReadOnlySpan{byte})"/> returns. The host runtime must
-/// support SHA3-256; query <see cref="IsSupported"/> before use. (.NET 10 on a supported OS
-/// satisfies this; it maps to the platform SHA-3 implementation.)
+/// support SHA3-256; query <see cref="IsSupported"/> before use.
 /// </remarks>
 public static class ProsperoPfsDigest
 {
@@ -104,8 +103,7 @@ public static class ProsperoPfsDigest
     /// The preimage is <c>header32 || shuffleSection || boundarySection || blockHashSection</c>, where
     /// <c>header32</c> is a 32-byte, 8-byte-aligned little-endian struct:
     /// <c>{u32 1; u32 blockSize; u32 encodeParam0C; u32 0 (pad); u64 encodeParam10; u64 uncompressedSize}</c>.
-    /// This layout holds byte-exact for independent encoder outputs
-    /// (compressed and stored blocks).
+    /// This layout applies to independent encoder outputs (compressed and stored blocks).
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="headerParams"/> is not 24 bytes.</exception>
     /// <exception cref="PlatformNotSupportedException">SHA3-256 is unavailable on this host.</exception>

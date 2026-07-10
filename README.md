@@ -29,10 +29,22 @@ application.
 - **Fake-signed packages (fPKG).** Optionally fake-sign raw ELF modules (`eboot.bin`, `*.elf`,
   `*.prx`, `*.sprx`) to fake-self before packing, producing an installable fake package. The
   conversion is non-destructive: source modules are restored after the build.
+- **Backup conversion.** `ProsperoBackupConverter` repackages a decrypted application backup into a
+  debug fPKG, substituting each executable with its decrypted ELF and fake-signing it, so the image
+  mounts from the content id and passcode with no rif.
+- **Launch-readiness inspection.** `ProsperoLaunchReadiness` inspects an assembled application root and
+  reports whether it meets the debug-launch conditions: every executable module is a plaintext module
+  the loader accepts, `eboot.bin` is present, and the metadata is a `param.json` rather than a PS4
+  `param.sfo`.
+- **Homebrew packaging.** `ProsperoHomebrewPackager` turns a compiled homebrew folder into an
+  installable debug fPKG: it assembles a clean source tree, builds a license-free debug image whose
+  mount key derives from the content id and passcode, and checks launch-readiness. A worked sample lives
+  in `src/HomebrewTest`.
 - **Application type.** `ProsperoApplicationType` selects the generated `param.json`
   `applicationDrmType` (`free` / `standard` / `freemium`), covering paid, upgradable, demo and
   freemium apps.
-- **Texture generation.** The `sce_sys` icon/picture DDS (BC7) re-encoder is backed by Magick.NET.
+- **Texture generation.** The `sce_sys` icon/picture DDS (BC7) re-encoder decodes the source PNG and
+  block-compresses it to a DX10 BC7 texture in-process.
 
 ---
 
@@ -42,7 +54,6 @@ application.
 |---|---|
 | Toolchain | .NET 10 SDK or newer |
 | Language | C# 14 |
-| Dependency | `Magick.NET-Q8-AnyCPU` |
 
 ---
 
@@ -108,6 +119,42 @@ var options = new ProsperoBuildOptions
 Files that are already SELF are left untouched, and the original module bytes are restored once
 packing completes.
 
+To build a DRM-free, license-free package in one step, set `LicenseFree`. It fake-signs modules and
+derives the debug mount key from the content id and passcode, so no rif is written.
+`ProsperoBuildResult.DebugLicense` reports the grant and `ProsperoBuildResult.LicenseFree` echoes the
+option. The output is a debug finalized image for a debug-enabled console.
+
+To repackage a decrypted application backup into a debug fPKG, call `ProsperoBackupConverter.Convert`.
+It substitutes each signed executable with its decrypted raw ELF, fake-signs the modules, and builds
+a debug image that mounts from the content id and passcode. The backup stays untouched; the converter
+works from a staging copy.
+
+```csharp
+var result = ProsperoBackupConverter.Convert(new ProsperoBackupConversionOptions
+{
+    BackupFolder = @"/path/to/backup/PPSA00000-app0",
+    OutputFolder = @"/path/to/output",
+});
+```
+
+### Packaging a homebrew module
+
+To package a compiled homebrew folder (a raw ELF `eboot.bin` plus an optional `sce_sys/` tree) into an
+installable debug fPKG, call `ProsperoHomebrewPackager.Package`. It fake-signs the module and derives
+the mount key from the content id and passcode, then checks launch-readiness. A worked sample lives in
+`src/HomebrewTest`.
+
+```csharp
+var result = ProsperoHomebrewPackager.Package(new ProsperoHomebrewPackageOptions
+{
+    HomebrewFolder = @"/path/to/HomebrewTest",
+    OutputFolder   = @"/path/to/output",
+    ContentId      = "UP9000-PPSA99099_00-PROSPERO00000000",
+    Title          = "LibProsperoPKG",
+});
+Console.WriteLine($"Launch ready: {result.LaunchReadiness.IsLaunchReady}");
+```
+
 ### Inspecting an existing package
 
 ```csharp
@@ -125,7 +172,7 @@ Console.WriteLine($"Entries:    {pkg.Entries.Count}");
 
 | Namespace | Key types |
 |---|---|
-| `LibProsperoPkg` | `ProsperoPackageBuilder`, `ProsperoBuildOptions`, `ProsperoBuildResult`, `ProsperoPackageMode`, `ProsperoOutputFormat`, `InnerImageForm`, `ProsperoApplicationType` |
+| `LibProsperoPkg` | `ProsperoPackageBuilder`, `ProsperoBackupConverter`, `ProsperoHomebrewPackager`, `ProsperoBuildOptions`, `ProsperoBuildResult`, `ProsperoBackupConversionOptions`, `ProsperoBackupConversionResult`, `ProsperoHomebrewPackageOptions`, `ProsperoHomebrewPackageResult`, `ProsperoPackageMode`, `ProsperoOutputFormat`, `InnerImageForm`, `ProsperoApplicationType` |
 | `LibProsperoPkg.PKG` | `ProsperoPkgBuilder`, `ProsperoPkgReader`, `ProsperoCntWriter`, `ProsperoFihBuilder`, `ProsperoPkgSigner`, `ProsperoDdsEncoder`, `ProsperoPackageExtractor`, `ProsperoExtractionKey`, `ProsperoPkgValidator`, `ProsperoPkg`, `ProsperoPkgHeader` |
 | `LibProsperoPkg.PFS` | `ProsperoPfsLayout`, `ProsperoPfsImage`, `ProsperoPfsc`, `ProsperoPfsExtractor` |
 | `LibProsperoPkg.License` | `ProsperoRif`, `ProsperoRifSet`, `ProsperoEntitlementKey` |
@@ -134,7 +181,7 @@ Console.WriteLine($"Entries:    {pkg.Entries.Count}");
 | `LibProsperoPkg.GP5` | `Gp5Creator`, `Gp5Project` and its element model |
 | `LibProsperoPkg.Keys` | `ProsperoKeys` |
 | `LibProsperoPkg.PlayGo` | `ProsperoPlayGo` |
-| `LibProsperoPkg.Content` | `ProsperoUcp`, `ProsperoFself`, `ProsperoSelfAuthInfo` |
+| `LibProsperoPkg.Content` | `ProsperoUcp`, `ProsperoFself`, `ProsperoSelfAuthInfo`, `ProsperoElfHeader`, `ProsperoLaunchReadiness` |
 
 See **[docs/](docs/)** for the full feature status and the PS5 package technical write-up.
 

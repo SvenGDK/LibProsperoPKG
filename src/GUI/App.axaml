@@ -1,0 +1,96 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:LibProsperoPkg.Gui.ViewModels"
+             xmlns:fields="clr-namespace:LibProsperoPkg.Gui.ViewModels.Fields"
+             x:Class="LibProsperoPkg.Gui.App"
+             RequestedThemeVariant="Default">
+
+  <Application.DataTemplates>
+
+    <DataTemplate DataType="fields:TextFieldViewModel">
+      <StackPanel Margin="0,0,0,12" Spacing="4">
+        <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBox Grid.Column="0"
+                   Text="{Binding Value, Mode=TwoWay}"
+                   PlaceholderText="{Binding Watermark}"
+                   AcceptsReturn="{Binding Multiline}"
+                   TextWrapping="Wrap"
+                   Height="{Binding InputHeight}"
+                   VerticalContentAlignment="Top" />
+          <Button Grid.Column="1"
+                  Content="Browse"
+                  Margin="8,0,0,0"
+                  VerticalAlignment="Top"
+                  IsVisible="{Binding ShowBrowse}"
+                  Command="{Binding BrowseCommand}" />
+        </Grid>
+        <TextBlock Text="{Binding Description}"
+                   IsVisible="{Binding HasDescription}"
+                   Opacity="0.7"
+                   TextWrapping="Wrap"
+                   FontSize="12" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="fields:CheckFieldViewModel">
+      <StackPanel Margin="0,0,0,12" Spacing="2">
+        <CheckBox Content="{Binding Label}" IsChecked="{Binding Value, Mode=TwoWay}" />
+        <TextBlock Text="{Binding Description}"
+                   IsVisible="{Binding HasDescription}"
+                   Opacity="0.7"
+                   TextWrapping="Wrap"
+                   FontSize="12"
+                   Margin="28,0,0,0" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="fields:ChoiceFieldViewModel">
+      <StackPanel Margin="0,0,0,12" Spacing="4">
+        <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+        <ComboBox ItemsSource="{Binding Options}"
+                  SelectedItem="{Binding Selected, Mode=TwoWay}"
+                  HorizontalAlignment="Stretch" />
+        <TextBlock Text="{Binding Description}"
+                   IsVisible="{Binding HasDescription}"
+                   Opacity="0.7"
+                   TextWrapping="Wrap"
+                   FontSize="12" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:ActionViewModel">
+      <Button Content="{Binding Name}"
+              Command="{Binding Command}"
+              Classes.accent="{Binding IsPrimary}"
+              Margin="0,0,8,8"
+              Padding="16,8" />
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:ToolPageViewModel">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24" Spacing="8" MaxWidth="720" HorizontalAlignment="Left">
+          <TextBlock Text="{Binding Title}" FontSize="22" FontWeight="Bold" />
+          <TextBlock Text="{Binding Description}"
+                     Opacity="0.75"
+                     TextWrapping="Wrap"
+                     Margin="0,0,0,12" />
+          <ItemsControl ItemsSource="{Binding Fields}" />
+          <ItemsControl ItemsSource="{Binding Actions}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+
+  </Application.DataTemplates>
+
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
+
+</Application>

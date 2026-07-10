@@ -2,16 +2,16 @@
 // Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
-// Kraken (newLZ) Huffman ARRAY encoder — the exact inverse of KrakenDecoder's entropy
+// Kraken (newLZ) Huffman ARRAY encoder — the inverse of KrakenDecoder's entropy
 // array decode path (DecodeBytes -> DecodeBytesType12 -> HuffMakeLut + 3-stream scalar core). It emits
 // a single entropy-coded "array" (chunk type 2 / single 3-stream split, "Old/simple" code-length
-// transmission) that the decoder accepts and decodes byte-exact. Operates on byte[]/int indices only.
+// transmission) that the decoder accepts. Operates on byte[]/int indices only.
 //
 // This is the entropy layer of the Kraken encoder: literal/command/length/offset arrays that
 // today are emitted RAW (type 0) can instead be Huffman-coded here, reducing block sizes toward
-// reference output. Byte-identical reference output additionally requires matching the exact
-// length-limited Huffman, transmission-format choice and optimal LZ parse. This encoder provides
-// the decoder-validated foundation for that through an in-process round-trip against the decoder.
+// encoder output. Matching encoder output additionally requires the same length-limited Huffman,
+// transmission-format choice and optimal LZ parse. This encoder provides the decoder-validated
+// foundation for that through an in-process round-trip against the decoder.
 //
 // The bit layout is defined entirely by KrakenDecoder (a GPLv3-licensed translation; see NOTICE).
 // LibProsperoPkg is GPLv3; GPLv3 §13 permits the combination. No external Kraken encoder specification is used.
@@ -24,7 +24,7 @@ namespace LibProsperoPkg.PFS.Compression.Oodle;
 
 /// <summary>
 /// Encodes a byte array into a Kraken entropy "array" (Huffman, chunk-type 2) that
-/// <see cref="KrakenDecoder"/> decodes byte-exact. Returns <c>null</c> when an entropy array
+/// <see cref="KrakenDecoder"/> decodes to the original bytes. Returns <c>null</c> when an entropy array
 /// would not be smaller than the raw form (caller should then store the array raw, type 0).
 /// </summary>
 internal static class KrakenHuffmanArrayEncoder
@@ -48,12 +48,11 @@ internal static class KrakenHuffmanArrayEncoder
 
         if (distinct == 1)
         {
-            // A single-symbol *top-level* array is rejected by the real decoder: Type12 returns a
-            // negative consumed length for numSyms==1 (the reference decoder computes "src - src_end"),
-            // which the DecodeBytes caller's "src_used != src_size" check treats as failure. Single
-            // symbol RLE only exists nested inside MultiArray/recursive contexts. Synthesize a
-            // phantom second symbol (freq 1, never present in the body) and use the validated
-            // 2-symbol path instead. Both symbols get length 1; the body emits only the real one.
+            // A single-symbol top-level array is rejected by the decoder: Type12 returns a negative
+            // consumed length for numSyms==1, which the DecodeBytes caller's "src_used != src_size"
+            // check treats as failure. Single-symbol RLE only exists nested inside MultiArray/recursive
+            // contexts. Synthesize a phantom second symbol (freq 1, never present in the body) and use
+            // the validated 2-symbol path instead. Both symbols get length 1; the body emits only the real one.
             int realSym = 0;
             for (int s = 0; s < 256; s++) if (freq[s] != 0) { realSym = s; break; }
             int phantom = realSym == 0 ? 1 : 0;
@@ -73,7 +72,7 @@ internal static class KrakenHuffmanArrayEncoder
         for (int s = 0; s < 256; s++)
             if (lenOfSym[s] != 0) revOfSym[s] = (ushort)ReverseBits(codeOfSym[s], lenOfSym[s]);
 
-        // 1) Code-length transmission (MSB-first), byte-padded. The reference encoder selects the
+        // 1) Code-length transmission (MSB-first), byte-padded. The encoder selects the
         //    HuffReadCodeLengthsOld sub-mode purely by alphabet size, not by which encoding is smaller.
         //    The packer tests HI->num_non_zero (HI[0x288] — the count of symbols with a nonzero histogram
         //    count, set by the code-length builder):
@@ -82,8 +81,8 @@ internal static class KrakenHuffmanArrayEncoder
         //    `distinct` here is that num_non_zero; both count nonzero histogram buckets. The "New"/Golomb
         //    transmission (tx=1) is disabled at lvl7 unless (flags & 0x40) != 0 && num_non_zero >= 5,
         //    so the "Old" form is always written here. This matters for small alphabets; for example,
-        //    the 11-symbol cmd array is 1 byte smaller as SIMPLE, but the reference writes COMPLEX
-        //    because 11 >= 5. A size-min selector diverges by 1 byte.
+        //    an 11-symbol command array can be smaller as SIMPLE, but the count rule writes COMPLEX
+        //    because 11 >= 5. A size-min selector can choose the wrong form.
         byte[]? headerBytes = distinct < 5
             ? BuildSimpleCodeLengthHeader(lenOfSym)
             : BuildComplexCodeLengthHeader(lenOfSym);
@@ -131,10 +130,9 @@ internal static class KrakenHuffmanArrayEncoder
     // ============================ array header (DecodeBytes entropy mode) ============================
     // The array compression header always uses the 5-byte long form:
     // lVar = (from_len-1)<<18 | comp_len | (chunkType<<36); byte0 = lVar>>32; bytes1..4 =
-    // big-endian low32(lVar). The reference encoder never emits the 3-byte short entropy header
-    // here; the decoder accepts src[0]>=0x80 short headers, but newLZ produces them only via other
-    // array sub-types. A byte-identical encoder must always use the long form here, even when the
-    // short form would fit.
+    // big-endian low32(lVar). This array subtype uses the long entropy header here; the decoder
+    // accepts src[0]>=0x80 short headers, but newLZ produces them only via other array sub-types.
+    // Always use the long form here, even when the short form would fit.
     private static byte[] BuildEntropyArray(int chunkType, int srcSize, int dstSize, out int bodyOff)
     {
         const int hdrLen = 5;
@@ -176,7 +174,7 @@ internal static class KrakenHuffmanArrayEncoder
         return hdr.ToBytesPadded();
     }
 
-    // COMPLEX sub-mode (the form reference arrays use): [0][1][forcedBits:2][skip:1] then, per maximal run
+    // COMPLEX sub-mode: [0][1][forcedBits:2][skip:1] then, per maximal run
     // of consecutive present symbols: a gap gamma (advance to the run), a run-length gamma, then each
     // symbol's code length as a zig-zag delta from a running predictor, Golomb-Rice coded with forcedBits
     // low bits. Exact inverse of HuffReadCodeLengthsOld's complex branch. Tries forcedBits 0..3, returns
@@ -201,7 +199,7 @@ internal static class KrakenHuffmanArrayEncoder
 
     // Per-fb complex header builder. Returns the writer (with exact BitLength) or null if forcedBits fb
     // cannot represent some zig-zag quotient (q > thres). Factored out so the selector can compare EXACT
-    // bit cost (the reference minimizes bits, not byte-padded length) across fb candidates.
+    // bit cost, not byte-padded length, across fb candidates.
     private static MsbBitWriter? BuildComplexHeaderForFb(byte[] lenOfSym, int fb, bool skip)
     {
         int maxLz = (int)(20u >> fb); // decoder's thres bounds the unary quotient
@@ -248,33 +246,6 @@ internal static class KrakenHuffmanArrayEncoder
         return w;
     }
 
-    // Diagnostic: exact bit cost of the complex code-length header for each forcedBits 0..3 (-1 if invalid).
-    // Used to inspect the reference forcedBits selection rule.
-    internal static int[] DebugComplexHeaderFbBits(byte[] lenOfSym)
-    {
-        int first = -1;
-        for (int s = 0; s < 256; s++) if (lenOfSym[s] != 0) { first = s; break; }
-        var r = new int[4] { -1, -1, -1, -1 };
-        if (first < 0) return r;
-        for (int fb = 0; fb <= 3; fb++)
-        {
-            var w = BuildComplexHeaderForFb(lenOfSym, fb, first == 0);
-            r[fb] = w?.BitLength ?? -1;
-        }
-        return r;
-    }
-
-    // Diagnostic: returns the raw bytes of both code-length transmission sub-forms (simple list, complex
-    // delta+Golomb) for a given per-symbol code-length table, plus which one the current selector picks.
-    // Lets diagnostics compare each sub-form byte-for-byte against the reference emitted header.
-    internal static (byte[]? simple, byte[]? complex, int chosen) DebugCodeLengthHeaders(byte[] lenOfSym)
-    {
-        byte[]? s = BuildSimpleCodeLengthHeader(lenOfSym);
-        byte[]? c = BuildComplexCodeLengthHeader(lenOfSym);
-        int chosen = s is null ? 1 : c is null ? 0 : (c.Length <= s.Length ? 1 : 0);
-        return (s, c, chosen);
-    }
-
     // Writes a gamma-style field F (>= 2) as the decoder reads it: 2*bitlen(F)-2 bits, MSB-first, so the
     // bitlen(F)-2 leading zeros + leading 1 are self-delimiting (decoder reads 2*(clz+1) bits).
     private static void WriteGamma(MsbBitWriter w, int f)
@@ -284,9 +255,9 @@ internal static class KrakenHuffmanArrayEncoder
         w.Write((uint)f, 2 * bl - 2);
     }
 
-    // ===================== Reference length-limited Huffman code lengths =====================
-    // Returns per-symbol code length (0 = unused), reproducing the reference code lengths byte-exact.
-    // Validated against reference output for bare-entropy arrays, including the hard L11-binding cases.
+    // ===================== Length-limited Huffman code lengths =====================
+    // Returns per-symbol code length (0 = unused). Handles bare-entropy arrays, including
+    // hard L11-binding cases.
     // The exact pipeline is:
     //   1. ScaleCounts — scale so total and max both fit in 0xFFFF.
     //   2. Sort — stable ascending by (count, symbol id).
@@ -294,7 +265,7 @@ internal static class KrakenHuffmanArrayEncoder
     //   4. Otherwise the length-limited boundary package-merge: MaxCodeLen lists each capped
     //      at 2n-2 items, a package winning a tie against an equal-weight leaf, then a top-down count.
     // The array Huffman encoder drives this with limit 11 at every level; at -lvl 7 the package-merge
-    // path, not the heuristic, matches the reference. Combined work GPLv3.
+    // path, not the heuristic, produces the required length limit. Combined work GPLv3.
     private const int PackageBit = 0x40000000;
 
     private static byte[] BuildCodeLengths(ReadOnlySpan<int> freq)
@@ -311,14 +282,13 @@ internal static class KrakenHuffmanArrayEncoder
         var weight = new long[256];
         ScaleCounts(freq, total, weight);
 
-        // (2) Collect present symbols, sort ascending by count. The reference sort dispatches by alphabet
+        // (2) Collect present symbols, sort ascending by count. The sort dispatches by alphabet
         //     size: <=32 distinct symbols -> an unstable median-of-3 introsort keyed on count only;
         //     >=33 -> a stable radix
         //     (counting) sort. The two disagree only on how equal-count symbols are ordered, and that tie
-        //     order is exactly what the Moffat builder turns into which symbol gets the shorter code. A
-        //     byte-identical encoder must reproduce both: the introsort permutation for small alphabets
-        //     (e.g. the 11-symbol cmd array) and the symbol-ascending stable order for large ones (e.g.
-        //     the 36-symbol literal array). Entries are built symbol-ascending (present is 0..255 order).
+        //     order is exactly what the Moffat builder turns into which symbol gets the shorter code.
+        //     Preserve both: the introsort permutation for small alphabets and the symbol-ascending
+        //     stable order for large ones. Entries are built symbol-ascending (present is 0..255 order).
         var sym = new int[n + 1];
         var cnt = new int[n + 1];
         for (int i = 0; i < n; i++) { sym[i] = present[i]; cnt[i] = (int)weight[present[i]]; }
@@ -440,13 +410,13 @@ internal static class KrakenHuffmanArrayEncoder
         Array.Copy(s2, sym, n); Array.Copy(c2, cnt, n);
     }
 
-    // Sort n<33 path: an unstable byte-exact introsort. Median-of-3 quicksort with an insertion base
+    // Sort n<33 path: an unstable introsort. Median-of-3 quicksort with an insertion base
     // for n<=4 and a heapsort fallback at recursion-depth exhaustion; comparator is count-only
     // strict-less, with no symbol tie-break, so the permutation of equal-count symbols is determined
     // purely by the partition/heap operations. Sorts the symbol-ascending (sym,cnt) entries in place,
-    // ascending by cnt. The depth budget matches the reference pre-grown sort stack: repeatedly decay
-    // the count by ~0.75 (x>>1)+(x>>2) until 0 -> k frames; when the pending-frame depth reaches k,
-    // heapsort the current range instead of partitioning.
+    // ascending by cnt. The depth budget repeatedly decays the count by ~0.75 (x>>1)+(x>>2)
+    // until 0 -> k frames; when the pending-frame depth reaches k, heapsort the current range
+    // instead of partitioning.
     private static void SortByCountSmall(int[] sym, int[] cnt, int n)
     {
         if (n < 2) return;
@@ -489,7 +459,7 @@ internal static class KrakenHuffmanArrayEncoder
             for (int end = count - 1; end >= 1; end--) { Swap(lo, lo + end); SiftDown(lo, 0, end); }
         }
 
-        // Introsort recursion-depth budget k (reference pre-grown stack size).
+        // Introsort recursion-depth budget k.
         int k = 0;
         { uint u = (uint)n; do { u = (u >> 1) + (u >> 2); k++; } while (u != 0); }
 
@@ -606,7 +576,7 @@ internal static class KrakenHuffmanArrayEncoder
     }
 
     // ============================ bit writers ============================
-    // MSB-first writer mirroring the reference bit reader's forward mode (first bit written -> bit 7 of byte 0).
+    // MSB-first writer for forward-mode bit reading (first bit written -> bit 7 of byte 0).
     private sealed class MsbBitWriter
     {
         private readonly List<byte> _bytes = new();

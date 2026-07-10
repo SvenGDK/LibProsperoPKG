@@ -3,9 +3,8 @@
 //
 // Validates a parsed package against the console-side acceptance gate: the structural
 // preconditions the mount path checks before it will read the key entry and mount a title.
-// Each check maps to a step documented in Reversed/acceptance-gate.md and
-// Reversed/AppSubcontainerGetEEKpfs.md. This does not (and cannot) reproduce the console's
-// cryptographic checks; it verifies the structural gate a package must pass to be mountable.
+// This does not reproduce the console's cryptographic checks; it verifies the structural gate
+// a package must pass to be mountable.
 
 using LibProsperoPkg.NpDrm;
 using System;
@@ -74,7 +73,7 @@ public sealed class ProsperoAcceptanceReport
 
 /// <summary>
 /// Checks a parsed <see cref="ProsperoPkg"/> against the structural acceptance gate the console
-/// mount path enforces (see Reversed/acceptance-gate.md).
+/// mount path enforces.
 /// </summary>
 public static class ProsperoPkgValidator
 {

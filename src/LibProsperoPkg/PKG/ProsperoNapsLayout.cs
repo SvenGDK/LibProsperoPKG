@@ -12,10 +12,10 @@
 // GNU Affero General Public License for more details.
 //
 // You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// along with this program.
 //
 //
-// Decoder + byte-exact serializer for the NAPS streaming layout (`naps_pkg_layout.dat`) of a PS5
+// Decoder and lossless serializer for the NAPS streaming layout (`naps_pkg_layout.dat`) of a PS5
 // finalized image. The on-disk `PackageLayout_NAPS` structure backs the
 // streaming output formats (`nwonly` / `bd+nw`).
 //
@@ -28,7 +28,7 @@
 // OuterBlocks=5, CblockInfo=45.
 //
 // Value boundary - this type does not fabricate the record values; it (de)serializes them. The values
-// describe the byte-exact layout of the NAPS-compressed + AES-XTS-encrypted *download
+// describe the exact layout of the NAPS-compressed + AES-XTS-encrypted download
 // stream* (the nwonly representation of the package), NOT merely the inner PFS image:
 // * CblockInfo coffsetStart256K/coffsetStartMod256K/coffsetEndMod256K/clenEvenMinus1 = compressed
 // byte offsets and lengths of the Oodle-Kraken-compressed download blocks (even/odd halves);
@@ -39,26 +39,10 @@
 // * m_isRunBase segments the stream into runs (a run-base marker + its member blocks);
 // * fidx (type + 40-bit m_uoffsetStart) and u2c (uint24 m_infoOffset9BBase + 7 deltas =>
 // start_cblockinfo_index per ublock) map files and uncompressed blocks into that stream.
-// Producing these values byte-identically requires the exact NAPS packager and its
-// Kraken encoder (compressed sizes are encoder-defined) - the same encoder constraint documented
-// for the Kraken codec - and cannot be byte-matched off-console for independently generated (valid but byte-different)
-// compression. The deliverables here are the modeled format + serializer, plus the confirmed
-// value semantics above.
-//
-// Evidence:
-// * debug-dump format strings name every field verbatim and confirm the layout field-for-field:
-// - header `[PackageLayout_NAPS]`: m_numFilesMinus1, m_compressionType, m_numKeysMinus1,
-// m_numShufflePatterns, m_numUBlocks, m_numOuterBlocks, m_numCblockInfoMinus2;
-// - section strides printed as "(=8*%lld)" OuterBlockDigest, ShufflePattern (8 B),
-// "(=6*%lld)" fidx, "(=10*%lld)" CblockInfoOffsetByUblockIdxCompressed, "(=9*%lld)" CblockInfo;
-// - fidx `type=%02x, m_uoffsetStart=%010llx`; u2c `m_infoOffset9BBase=%06lx` + m_deltaFromBase;
-// - both CblockInfo records: run-base `m_coffsetEndMod256K,m_isRunBase,m_tweakIdxStart,
-// m_keyTableIdx,m_coffsetStart256K` and block `m_coffsetStartMod256K,m_isRunBase,
-// m_uoffsetStart,m_clenEvenMinus1,m_even,m_odd,m_KdePredictor,m_shuffleIdx`.
-// * The exact bit packing of the two 64-bit header words and the inter-field bit offsets of the
-// 9-byte CblockInfo record are confirmed by the byte-exact round-trip.
-//
-// See LibProsperoPKG/docs/implementation-status.md and the session checkpoints for format details.
+// The values are encoder-defined because compressed sizes are produced by the Kraken encoder.
+// This type models the on-disk format, serializes each field, and preserves the value semantics above.
+// The bit packing of the two 64-bit header words and the inter-field bit offsets of the 9-byte
+// CblockInfo record are exercised by the round-trip serializer.
 
 using System;
 using System.Buffers.Binary;
@@ -91,6 +75,13 @@ public readonly record struct NapsLayoutCounts(
     /// 8 uncompressed blocks (each entry carries a uint24 base plus 7 per-ublock deltas).
     /// </summary>
     public int NumU2cEntries => (((NumUBlocks + 7) & ~7) >> 3);
+
+    /// <summary>
+    /// Number of 6-byte <c>UncompressedOffsetStartByFileIdx</c> (fidx) entries. There is one entry per
+    /// file plus one trailing sentinel (the total uncompressed size), i.e. <c>m_numFilesMinus1 + 2</c>
+    /// which equals <see cref="NumFiles"/> + 1.
+    /// </summary>
+    public int NumFileOffsetEntries => NumFiles + 1;
 }
 
 /// <summary>Byte offset and size of one NAPS section inside the layout blob.</summary>
@@ -118,11 +109,13 @@ public readonly record struct NapsSectionMap(
     long TotalSize);
 
 /// <summary>
-/// A 6-byte <c>UncompressedOffsetStartByFileIdx</c> (fidx) entry. Layout matches the
-/// dump format <c>fidx[..] : type=%02x, m_uoffsetStart=%010llx</c> (1 type byte + 40-bit offset).
+/// A 6-byte <c>UncompressedOffsetStartByFileIdx</c> (fidx) entry: a 40-bit little-endian
+/// uncompressed start offset followed by a 1-byte <c>type</c> (validated layout
+/// <c>offset[0..5) LE + type[5]</c>). The last real entry carries the total inner logical size with
+/// <c>type=0x40</c>; a fixed trailer sentinel follows the per-file entries.
 /// </summary>
-/// <param name="Type">The per-file <c>type</c> byte.</param>
-/// <param name="UncompressedOffsetStart">40-bit little-endian uncompressed start offset.</param>
+/// <param name="Type">The per-file <c>type</c> byte (byte 5 of the entry).</param>
+/// <param name="UncompressedOffsetStart">40-bit little-endian uncompressed start offset (bytes 0..4).</param>
 public readonly record struct NapsFileOffsetEntry(byte Type, ulong UncompressedOffsetStart);
 
 /// <summary>
@@ -311,6 +304,26 @@ public static class ProsperoNapsLayout
         return header;
     }
 
+    /// <summary>
+    /// Builds a minimal, well-formed layout blob that fits in a single outer block. The debug install
+    /// path does not read this content; it only needs to exist as a distinct outer file so the outer
+    /// image data precedes the superblock. The blob carries a valid header and zeroed sections sized
+    /// by the header counts, and round-trips through <see cref="DecodeHeader"/>/<see cref="SectionMap(NapsLayoutCounts)"/>.
+    /// </summary>
+    /// <param name="alignment">Byte alignment for the trailing zero pad (default <see cref="DefaultAlignment"/>).</param>
+    /// <returns>The serialized layout blob (always &lt;= one block).</returns>
+    public static byte[] BuildMinimalLayout(int alignment = DefaultAlignment)
+    {
+        var counts = new NapsLayoutCounts(
+            NumFiles: 1, CompressionType: 0, NumKeys: 1, NumShufflePatterns: 0,
+            NumUBlocks: 0, NumOuterBlocks: 0, NumCblockInfo: 2);
+        long content = SectionMap(counts).TotalSize;
+        long total = alignment > 1 ? (content + alignment - 1) / alignment * alignment : content;
+        var blob = new byte[total];
+        EncodeHeader(counts).CopyTo(blob.AsSpan());
+        return blob;
+    }
+
     // ---- Section map (fixed strides) -----------------------------------------------------------
 
     /// <summary>
@@ -318,6 +331,16 @@ public static class ProsperoNapsLayout
     /// fixed on-disk order. This split is exact given correct counts.
     /// </summary>
     public static NapsSectionMap SectionMap(NapsLayoutCounts counts)
+        => SectionMap(counts, counts.NumFileOffsetEntries);
+
+    /// <summary>
+    /// Section map with an EXPLICIT fidx (UncompressedOffsetStartByFileIdx) entry count. The fidx count is
+    /// NOT a fixed function of <see cref="NapsLayoutCounts.NumFiles"/> — it also carries per-padding/metadata
+    /// pseudo-entries emitted by the compressor's addData/flush, so it varies per package (DebugSettings = 9,
+    /// Downloads = 7). Callers that know the real count (parse: derived from the blob length; build: the
+    /// document's FileOffsets count) pass it here; the fixed-count overload keeps the legacy NumFiles+1 default.
+    /// </summary>
+    public static NapsSectionMap SectionMap(NapsLayoutCounts counts, int fidxEntryCount)
     {
         long pos = 0;
         var header = new NapsSection(pos, HeaderSize, HeaderSize, 1);
@@ -329,7 +352,7 @@ public static class ProsperoNapsLayout
         var sp = new NapsSection(pos, (long)counts.NumShufflePatterns * ShufflePatternStride, ShufflePatternStride, counts.NumShufflePatterns);
         pos += sp.Size;
 
-        var fidx = new NapsSection(pos, (long)counts.NumFiles * FileOffsetStride, FileOffsetStride, counts.NumFiles);
+        var fidx = new NapsSection(pos, (long)fidxEntryCount * FileOffsetStride, FileOffsetStride, fidxEntryCount);
         pos += fidx.Size;
 
         int u2cCount = counts.NumU2cEntries;
@@ -342,18 +365,41 @@ public static class ProsperoNapsLayout
         return new NapsSectionMap(header, ob, sp, fidx, u2c, cbi, pos);
     }
 
+    /// <summary>
+    /// Derive the real fidx entry count from an exact-size NAPS blob. CblockInfo is the last section (no
+    /// trailer), so its start = blobLength − NumCblockInfo·9; the fidx count is what remains after the
+    /// fixed header/outer-block/shuffle/u2c sections. Returns <c>NumFiles+1</c> as a fallback when the blob is
+    /// padded or the arithmetic is not exact.
+    /// </summary>
+    public static int DeriveFidxEntryCount(NapsLayoutCounts counts, long blobLength)
+    {
+        long fixedBefore = HeaderSize
+            + (long)counts.NumOuterBlocks * OuterBlockDigestStride
+            + (long)counts.NumShufflePatterns * ShufflePatternStride
+            + (long)counts.NumU2cEntries * U2cStride;
+        long cblockStart = blobLength - (long)counts.NumCblockInfo * CblockInfoStride;
+        long fidxBytes = cblockStart - fixedBefore;
+        if (fidxBytes >= 0 && fidxBytes % FileOffsetStride == 0)
+        {
+            int derived = (int)(fidxBytes / FileOffsetStride);
+            if (derived >= 1)
+                return derived;
+        }
+        return counts.NumFileOffsetEntries;
+    }
+
     // ---- Entry decoders ---------------------------------------------------------------------------
 
-    /// <summary>Decode a 6-byte fidx entry (validated layout: 1 type byte + 40-bit LE offset).</summary>
+    /// <summary>Decode a 6-byte fidx entry (validated layout: 40-bit LE offset + 1 type byte).</summary>
     public static NapsFileOffsetEntry DecodeFileOffsetEntry(ReadOnlySpan<byte> entry)
     {
         if (entry.Length < FileOffsetStride)
             throw new ArgumentException($"fidx entry needs {FileOffsetStride} bytes.", nameof(entry));
 
-        byte type = entry[0];
         ulong offset = 0;
         for (int i = 0; i < 5; i++)
-            offset |= (ulong)entry[1 + i] << (8 * i);
+            offset |= (ulong)entry[i] << (8 * i);
+        byte type = entry[5];
         return new NapsFileOffsetEntry(type, offset);
     }
 
@@ -361,10 +407,10 @@ public static class ProsperoNapsLayout
     public static byte[] EncodeFileOffsetEntry(NapsFileOffsetEntry entry)
     {
         var buffer = new byte[FileOffsetStride];
-        buffer[0] = entry.Type;
         ulong offset = entry.UncompressedOffsetStart;
         for (int i = 0; i < 5; i++)
-            buffer[1 + i] = (byte)(offset >> (8 * i));
+            buffer[i] = (byte)(offset >> (8 * i));
+        buffer[5] = entry.Type;
         return buffer;
     }
 
@@ -394,7 +440,7 @@ public static class ProsperoNapsLayout
 
     /// <summary>
     /// Decode a 9-byte CblockInfo entry. The round-trip re-encodes every CblockInfo record of a
-    /// <c>naps_pkg_layout.dat</c> byte-exact: the discriminator
+    /// <c>naps_pkg_layout.dat</c> exactly: the discriminator
     /// (<c>m_isRunBase</c> at bit 18), the field set, and all bit offsets re-encode to the exact
     /// on-disk bytes. Field widths match the dump-format hints. The raw bytes
     /// are always preserved on <see cref="NapsCblockInfoEntry.Raw"/>.
@@ -447,18 +493,30 @@ public static class ProsperoNapsLayout
 
     /// <summary>
     /// Parse a full <c>naps_pkg_layout.dat</c> blob using counts decoded from its header. The header
-    /// packing and every section decoder round-trip byte-exact.
+    /// packing and every section decoder round-trip losslessly.
     /// </summary>
     public static NapsLayoutDocument Parse(ReadOnlySpan<byte> blob)
-        => Parse(blob, DecodeHeader(blob));
+    {
+        NapsLayoutCounts counts = DecodeHeader(blob);
+        // The fidx count is package-dependent (padding/metadata pseudo-entries), so derive it from the exact
+        // blob length rather than assuming NumFiles+1 (which only holds for some packages, e.g. DebugSettings).
+        int fidxCount = DeriveFidxEntryCount(counts, blob.Length);
+        return Parse(blob, counts, fidxCount);
+    }
 
     /// <summary>
     /// Parse a full <c>naps_pkg_layout.dat</c> blob using explicitly supplied counts (e.g. from the
     /// supplied metric data). The section split uses only the fixed strides, so it is exact.
     /// </summary>
     public static NapsLayoutDocument Parse(ReadOnlySpan<byte> blob, NapsLayoutCounts counts)
+        => Parse(blob, counts, counts.NumFileOffsetEntries);
+
+    /// <summary>
+    /// Parse with an explicit fidx entry count (see <see cref="SectionMap(NapsLayoutCounts, int)"/>).
+    /// </summary>
+    public static NapsLayoutDocument Parse(ReadOnlySpan<byte> blob, NapsLayoutCounts counts, int fidxEntryCount)
     {
-        NapsSectionMap map = SectionMap(counts);
+        NapsSectionMap map = SectionMap(counts, fidxEntryCount);
         if (blob.Length < map.TotalSize)
             throw new ArgumentException(
                 $"NAPS blob is {blob.Length} bytes but the counts require {map.TotalSize}.", nameof(blob));
@@ -501,7 +559,7 @@ public static class ProsperoNapsLayout
     public const int DefaultAlignment = 16;
 
     /// <summary>
-    /// Serialize a <see cref="NapsLayoutDocument"/> back into a <c>naps_pkg_layout.dat</c> blob, byte-exact.
+    /// Serialize a <see cref="NapsLayoutDocument"/> back into a <c>naps_pkg_layout.dat</c> blob.
     /// This is the inverse of <see cref="Parse(ReadOnlySpan{byte}, NapsLayoutCounts)"/>:
     /// <c>BuildLayout(Parse(x)) == x</c> for every byte, including the trailing zero pad.
     /// The section content is emitted in the fixed on-disk order
@@ -522,14 +580,16 @@ public static class ProsperoNapsLayout
             throw new ArgumentException($"OuterBlockDigests count {document.OuterBlockDigests.Count} != NumOuterBlocks {counts.NumOuterBlocks}.", nameof(document));
         if (document.ShufflePatterns.Count != counts.NumShufflePatterns)
             throw new ArgumentException($"ShufflePatterns count {document.ShufflePatterns.Count} != NumShufflePatterns {counts.NumShufflePatterns}.", nameof(document));
-        if (document.FileOffsets.Count != counts.NumFiles)
-            throw new ArgumentException($"FileOffsets count {document.FileOffsets.Count} != NumFiles {counts.NumFiles}.", nameof(document));
+        if (document.FileOffsets.Count < 1)
+            throw new ArgumentException("FileOffsets must have at least one entry.", nameof(document));
         if (document.CblockInfoOffsetByUblock.Count != counts.NumU2cEntries)
             throw new ArgumentException($"u2c count {document.CblockInfoOffsetByUblock.Count} != NumU2cEntries {counts.NumU2cEntries}.", nameof(document));
         if (document.CblockInfos.Count != counts.NumCblockInfo)
             throw new ArgumentException($"CblockInfos count {document.CblockInfos.Count} != NumCblockInfo {counts.NumCblockInfo}.", nameof(document));
 
-        NapsSectionMap map = SectionMap(counts);
+        // The fidx count is package-dependent (padding/metadata pseudo-entries), so lay the sections out for the
+        // document's ACTUAL FileOffsets count rather than the fixed NumFiles+1.
+        NapsSectionMap map = SectionMap(counts, document.FileOffsets.Count);
         long content = map.TotalSize;
         long total = alignment > 1 ? (content + alignment - 1) / alignment * alignment : content;
 
@@ -593,7 +653,7 @@ public static class ProsperoNapsLayout
 
     /// <summary>
     /// Encode a CblockInfo entry from the model fields (inverse of <see cref="DecodeCblockInfoEntry"/>).
-    /// The round-trip re-encodes every CblockInfo record byte-exact.
+    /// The round-trip re-encodes every CblockInfo record exactly.
     /// </summary>
     public static byte[] EncodeCblockInfoEntry(NapsCblockInfoEntry entry)
     {

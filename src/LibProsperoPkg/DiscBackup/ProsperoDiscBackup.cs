@@ -4,8 +4,6 @@
 // Opens a split disc-backup package (app_0.pkg + app_sc.pkg + ... described by app.json),
 // reassembles the pieces on the fly, verifies the SHA-256 package digest and PlayGo chunk CRCs,
 // and reads/extracts the finalized (FIH) container and its embedded CNT entries.
-// See Reversed/disc-backup-format.md for the format and Reversed/acceptance-gate.md for the
-// mount chain the reassembled image feeds.
 
 using LibProsperoPkg.PKG;
 using System;
@@ -124,8 +122,7 @@ public sealed class ProsperoDiscBackup
 
     /// <summary>
     /// Projects the NpDrm content-info (title-id, drm/content type, content flags, patch kind,
-    /// nested-image flag) from the reassembled finalized image. See
-    /// Reversed/npdrm-content-info.md. The CNT metadata is carried by the tail piece
+    /// nested-image flag) from the reassembled finalized image. The CNT metadata is carried by the tail piece
     /// (<c>app_sc.pkg</c>), so this requires the full reassembled stream, not the head piece alone.
     /// </summary>
     public NpDrm.ProsperoNpDrmContentInfo ReadContentInfo() =>
@@ -197,7 +194,7 @@ public sealed class ProsperoDiscBackup
     /// <summary>
     /// Finds the EEKPFS key entry (id <see cref="ProsperoEntryId.ImageKey"/>, 0x20) in the embedded
     /// CNT, or <see langword="null"/> when absent. This is the entry the console reads to derive the
-    /// PFS keys (see Reversed/AppSubcontainerGetEEKpfs.md); for a retail image it is encrypted.
+    /// PFS keys; for a retail image it is encrypted.
     /// </summary>
     public static ProsperoPkgEntry? FindImageKeyEntry(ProsperoPkg package)
     {

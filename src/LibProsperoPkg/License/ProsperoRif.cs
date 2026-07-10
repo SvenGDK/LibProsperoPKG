@@ -4,8 +4,7 @@
 // Reader, writer and creator for the PS5 per-title license file (license/rif).
 // A RIF (Rights Information File) is a fixed 0x400-byte record that binds a content-id
 // to an encrypted 448-byte entitlement/key blob. The fixed header is big-endian on disk;
-// multi-title discs concatenate one record per sub-title. See Reversed/rif-format.md for
-// the decoded layout and Reversed/AppSubcontainerGetEEKpfs.md for how the blob is consumed.
+// multi-title discs concatenate one record per sub-title.
 
 using System;
 using System.Buffers.Binary;

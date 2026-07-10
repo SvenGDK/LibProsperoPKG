@@ -23,13 +23,14 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace LibProsperoPkg.PKG;
 
 /// <summary>
 /// Reproducible inputs captured during a CNT build for producing the trailing debug SI segment
 /// (<c>sce_suppl</c> ZIP). The package builder surfaces these out of
-/// <see cref="ProsperoPkgBuilder.Build(ProsperoPkgBuildProperties,string,out byte[],out ProsperoSiBuildInputs,Action{string})"/>
+/// <see cref="ProsperoPkgBuilder.Build(ProsperoPkgBuildProperties,string,out byte[],out ProsperoSiBuildInputs,out long,out long,out ProsperoFihNwonlyFields,Action{string})"/>
 /// so the finalizer (<see cref="ProsperoFihBuilder.BuildFromCnt"/>) can assemble the segment from the
 /// finalized mount image via <see cref="ProsperoSiArchive.BuildDebugSiSegment"/>.
 /// </summary>
@@ -50,6 +51,22 @@ internal sealed class ProsperoSiBuildInputs
     /// (that field is only populated for the data-first layout), so it cannot be read back from the mount image.
     /// </summary>
     public long InnerImageSize { get; init; }
+}
+
+/// <summary>
+/// The nwonly (data-first) FIH accounting fields the finalizer stamps into the FIH header, computed during the
+/// CNT build where the inner assembler result, naps layout, and param.json are available.
+/// </summary>
+internal sealed class ProsperoFihNwonlyFields
+{
+    /// <summary>FIH 0x9C: high 32 bits of the param/content_ver u64 (contentVersion major BCD in the top byte).</summary>
+    public uint ContentVersionHi { get; init; }
+
+    /// <summary>FIH 0x94/0x98: inner content-inode count (dirs + files below uroot).</summary>
+    public int InnerContentInodes { get; init; }
+
+    /// <summary>FIH 0xF0: app-payload (non-sce_sys) regular file count.</summary>
+    public int AppFileCount { get; init; }
 }
 
 /// <summary>The PS5 volume kind, which selects the content-type code stamped into the header.</summary>
@@ -82,10 +99,19 @@ public enum ProsperoInnerCompression
     /// <summary>
     /// PS5 PFSv3 Kraken compression (<see cref="LibProsperoPkg.PFS.Compression.ProsperoCompressedPfsImage"/>).
     /// This codec stores <c>pfs_image.dat</c> as a self-describing Kraken "PFSC" container
-    /// inside a regular outer-PFS file. The container round-trips byte-exact through the decoder;
+    /// inside a regular outer-PFS file. The container round-trips losslessly through the decoder;
     /// on-console package acceptance depends on console mode and firmware.
     /// </summary>
     Kraken,
+
+    /// <summary>
+    /// PS5 nwonly "data-first" inner image (<see cref="LibProsperoPkg.PFS.ProsperoPs5InnerImageAssembler"/>):
+    /// a raw concatenation of per-file payloads (raw or headerless Kraken) with the geometry described by a
+    /// generated <c>naps_pkg_layout.dat</c> for nwonly system packages. Round-trips through
+    /// <see cref="ProsperoPackageExtractor"/>. The generated naps is valid for inputs whose compression
+    /// schedule is described by the emitted layout.
+    /// </summary>
+    NwonlyDataFirst,
 }
 
 /// <summary>Everything required to build a PS5 CNT package.</summary>
@@ -139,17 +165,28 @@ public sealed class ProsperoPkgBuildProperties
 public static class ProsperoPkgBuilder
 {
     // PS5 header constants.
-    private const uint DrmTypePs5 = 0x10;          // CNT header @0x70.
+    // CNT header @0x70. Content whose info resolves without an entitlement lookup.
+    private const uint DrmTypeNone = 0x0;
     private const uint ContentTypeGd = 0x20;       // CNT header @0x74 (game data).
     private const uint ContentTypeAc = 0x21;       // additional content, with data.
     private const uint ContentTypeAl = 0x22;       // additional content, no data.
     private const uint Unk0CPs5 = 0xC;             // CNT header @0x0C.
-    private const uint FlagsPs5 = 0x02000001;      // VER_2 | Unknown (not finalized; the FIH finalize bit is set on-console).
+    // CNT header @0x04 (BE u32). The validator reads bytes 0x04..0x05 as a little-endian u16 selector
+    // and bytes 0x06..0x07 as a big-endian u16 version. This value yields selector 0x0200 (bit 9) and
+    // version 1, which routes header validation through the RSA-3072 metadata-signature path.
+    private const uint FlagsPs5 = 0x00020001;
+    // CNT header @0x08 (BE u32). The validator reads byte 0x08 as a signed value and requires it to be
+    // negative on the bit-9 path, so byte 0x08 must have its high bit set.
+    private const uint Unk08Ps5 = 0x80000000;
     private const ulong PfsFlags = 0x80000000000003CC; // The encrypted+signed PFS flag word for a PfsBuilder image.
 
     private const ulong BodyOffset = 0x2000;
     private const ulong PfsImageOffset = 0x80000;  // Canonical PFS image offset.
     private const int BlockSize = 0x10000;
+
+    // Inner-image regular-file mode for a NON-sce_sys file (app payload); sce_sys files use 0x8168. Set by
+    // ProsperoPs5InnerImageAssembler.BuildNodes; used to count the FIH 0xF0 app-payload file field.
+    private const ushort NonSceSysFileMode = 0x816d;
 
     // imagedigs.dat is the unnamed CNT entry id 0x040A (one after PSRESERVED_DAT 0x409). It is a CNT
     // body entry — NOT an inner-PFS file — so it does not digest its own storage: there is no fixpoint
@@ -175,7 +212,7 @@ public static class ProsperoPkgBuilder
     private static ProsperoCntContentFlags ContentFlagsFor(ProsperoVolumeType type) => type switch
     {
         ProsperoVolumeType.AdditionalContentNoData => 0,
-        _ => ProsperoCntContentFlags.Unk_x8000000 | ProsperoCntContentFlags.GD_AC,
+        _ => ProsperoCntContentFlags.GD_AC | ProsperoCntContentFlags.GD_BASE,
     };
 
     /// <summary>
@@ -185,7 +222,7 @@ public static class ProsperoPkgBuilder
     /// <returns>The output path.</returns>
     /// <exception cref="ArgumentException">A required property is missing or malformed.</exception>
     public static string Build(ProsperoPkgBuildProperties props, string outputPath, Action<string>? logger = null)
-        => Build(props, outputPath, out _, out _, logger);
+        => Build(props, outputPath, out _, out _, out _, out _, out _, logger);
 
     /// <summary>
     /// CNT-build overload that also surfaces the FIH 0xB0 nested-image-content digest — SHA3-256 of the
@@ -196,10 +233,13 @@ public static class ProsperoPkgBuilder
     /// Also surfaces the reproducible <see cref="ProsperoSiBuildInputs"/> so the finalizer can assemble the
     /// trailing debug SI segment (<c>sce_suppl</c>) from the finalized mount image.
     /// </summary>
-    internal static string Build(ProsperoPkgBuildProperties props, string outputPath, out byte[]? nestedImageDigest, out ProsperoSiBuildInputs? siInputs, Action<string>? logger = null)
+    internal static string Build(ProsperoPkgBuildProperties props, string outputPath, out byte[]? nestedImageDigest, out ProsperoSiBuildInputs? siInputs, out long nestedImageSize, out long nestedMetaBaseBlocks, out ProsperoFihNwonlyFields? nwonlyFih, Action<string>? logger = null)
     {
         nestedImageDigest = null;
         siInputs = null;
+        nestedImageSize = 0;
+        nestedMetaBaseBlocks = 0;
+        nwonlyFih = null;
         ArgumentNullException.ThrowIfNull(props);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         var log = logger ?? (_ => { });
@@ -228,9 +268,15 @@ public static class ProsperoPkgBuilder
         // image is written, before the container bodies/digests are finalized.
         long fileTime = ToUnixSeconds(props.TimeStamp);
         byte[]? capturedNestedDigest = null;
+        long capturedNestedImageSize = 0;
+        long capturedNestedMetaBaseBlocks = 0;
+        ProsperoFihNwonlyFields? capturedNwonlyFih = null;
         ProsperoSiBuildInputs? capturedSi = null;
         BuildImageOnce();
         nestedImageDigest = capturedNestedDigest;
+        nestedImageSize = capturedNestedImageSize;
+        nestedMetaBaseBlocks = capturedNestedMetaBaseBlocks;
+        nwonlyFih = capturedNwonlyFih;
         siInputs = capturedSi;
 
         log($"Done: {Path.GetFileName(outputPath)} ({new FileInfo(outputPath).Length:N0} bytes).");
@@ -242,11 +288,9 @@ public static class ProsperoPkgBuilder
             log("Preparing PS5 inner PFS (superblock version 2)...");
             var innerRoot = BuildInnerTree(sourceFolder, props.Passcode);
             // PlayGo file/inode count of the inner image: drives playgo-ficm.dat (count) and
-            // playgo-hash-table.dat (count / 2), self-consistent. The total
-            // inner content size drives the playgo-chunk.dat size words (self-consistent layout).
+            // playgo-hash-table.dat (count / 2), self-consistent.
             var innerFiles = innerRoot.GetAllChildrenFiles();
             uint playgoFileCount = (uint)Math.Min(innerFiles.Count, 0x100000);
-            ulong chunkDataSize = (ulong)Math.Max(0L, innerFiles.Sum(f => f.Size));
             var innerProps = new ProsperoPfsProperties
             {
                 root = innerRoot,
@@ -261,31 +305,71 @@ public static class ProsperoPkgBuilder
             };
             var innerPfs = new ProsperoPfsBuilder(innerProps, s => log($" [inner] {s}"));
 
-            // FIH 0xB0 nested-image-content digest:
-            // the finalized-image 0xB0 slot is SHA3-256(map[0xD]) where map[0xD] is the UNCOMPRESSED inner
-            // (nested) PFS image at its plain/logical size (*(ctx+0x14e0) bytes) — NOT the outer image and NOT
-            // the stored/compressed pfs_image.dat. Render the inner image once into a zero-filled buffer (so
-            // sparse blocks match the in-memory logical image) and take its SHA3-256.
-            // Rendering is idempotent on disk (every node writes to its fixed inode StartBlock), so the inner
-            // file path below re-renders the identical bytes. An inner image too large to buffer (>2 GiB, never
-            // a typical nwonly system package) is left null so the FIH header falls back to its best-effort hash.
-            byte[]? innerImageDigest = null;
+            // PS5 nwonly "data-first" inner: the assembler emits the raw-concatenated inner image and the
+            // naps generator derives its layout descriptor. The standard PFS inner (innerPfs) is still built
+            // for the PlayGo file count and the SI inner-tree snapshot.
+            bool nwonly = ResolveInnerCompression(props) == ProsperoInnerCompression.NwonlyDataFirst;
+            LibProsperoPkg.PFS.ProsperoPs5InnerImageResult? asmResult = null;
+            byte[]? nwonlyNaps = null;
+            if (nwonly)
             {
-                long innerImageSize = innerPfs.CalculatePfsSize();
-                if (innerImageSize > 0 && innerImageSize <= Array.MaxLength)
+                asmResult = new LibProsperoPkg.PFS.ProsperoPs5InnerImageAssembler(fileTime, 0).BuildFromFsTree(innerRoot);
+                nwonlyNaps = ProsperoNwonlyNapsGenerator.Generate(asmResult);
+            }
+
+            // FIH nested-image accounting:
+            //   0xA8 = length of naps_pkg_layout.dat.
+            //   0xB0 = SHA3-256(naps_pkg_layout.dat). The console validates 0xB0 against the naps it reads
+            //          back from the outer PFS, so computing it from the emitted naps is self-consistent.
+            // For the legacy (non-nwonly) inner path there is no naps; 0xB0 falls back to the inner PFS image
+            // digest and 0xA8 to the inner logical size (unchanged legacy behaviour).
+            byte[]? innerImageDigest = null;
+            long nestedFieldSize;
+            if (nwonly)
+            {
+                innerImageDigest = ProsperoImageDigests.Sha3_256(nwonlyNaps!);
+                nestedFieldSize = nwonlyNaps!.Length;
+            }
+            else
+            {
+                long innerImageLogicalSize = innerPfs.CalculatePfsSize();
+                nestedFieldSize = innerImageLogicalSize;
+                if (innerImageLogicalSize > 0 && innerImageLogicalSize <= Array.MaxLength)
                 {
-                    using var innerImageBuf = new MemoryStream(checked((int)innerImageSize));
-                    innerImageBuf.SetLength(innerImageSize);
+                    using var innerImageBuf = new MemoryStream(checked((int)innerImageLogicalSize));
+                    innerImageBuf.SetLength(innerImageLogicalSize);
                     innerPfs.WriteImage(innerImageBuf);
                     innerImageDigest = innerImageBuf.TryGetBuffer(out var seg)
-                        ? ProsperoImageDigests.Sha3_256(seg.AsSpan(0, (int)innerImageSize))
+                        ? ProsperoImageDigests.Sha3_256(seg.AsSpan(0, (int)innerImageLogicalSize))
                         : ProsperoImageDigests.Sha3_256(innerImageBuf.ToArray());
                 }
             }
             capturedNestedDigest = innerImageDigest;
+            capturedNestedImageSize = nestedFieldSize;
+            // FIH+0x50 source: the inner mount's data-region block count (metaBase index). Only the nwonly
+            // data-first path produces an inner mount with a metaBase; the legacy inner leaves it 0.
+            capturedNestedMetaBaseBlocks = nwonly ? asmResult!.MetaBaseLogical / BlockSize : 0;
+
+            // FIH inode-accounting + content-version fields (nwonly data-first only), from the inner assembler
+            // result and param.json:
+            //   0x94/0x98 = inner content-inode count = nodes with a parent (dirs+files below uroot; the
+            //               super-root, uroot and the internal flat-path tables all have ParentInode < 0).
+            //   0xF0      = app-payload (non-sce_sys) regular file count (sce_sys files carry file-mode 0x8168).
+            //   0x9C      = contentVersion major BCD in the top byte of the high dword.
+            if (nwonly)
+            {
+                int innerContentInodes = asmResult!.Nodes.Count(n => n.ParentInode >= 0);
+                int appFileCount = asmResult.Nodes.Count(
+                    n => !n.IsDirectory && n.ParentInode >= 0 && n.Mode == NonSceSysFileMode);
+                capturedNwonlyFih = new ProsperoFihNwonlyFields
+                {
+                    ContentVersionHi = ContentVersionHigh(ReadParamJsonInfo(sourceFolder).ContentVersion),
+                    InnerContentInodes = innerContentInodes,
+                    AppFileCount = appFileCount,
+                };
+            }
 
             log("Preparing PS5 outer PFS (encrypted + signed)...");
-            var outerRoot = new ProsperoFsDir();
             // The inner image is either stored raw inside a PFSC wrapper (the default)
             // or genuinely PFSC-compressed (the compact form,
             // the dominant size driver). Genuine compression renders the inner image to a temp file and
@@ -293,41 +377,95 @@ public static class ProsperoPkgBuilder
             string? tmpRawInner = null, tmpPfscInner = null;
             try
             {
-                var innerFile = ResolveInnerCompression(props) switch
+                long innerImageAlignedSize;
+                ProsperoOuterFile[] outerFiles;
+                if (nwonly)
                 {
-                    ProsperoInnerCompression.Zlib => BuildCompressedInnerFile(innerPfs, log, out tmpRawInner, out tmpPfscInner),
-                    ProsperoInnerCompression.Kraken => BuildKrakenInnerFile(innerPfs, log, out tmpRawInner, out tmpPfscInner),
-                    _ => new ProsperoFsFile(innerPfs),
-                };
-                innerFile.Parent = outerRoot;
-                outerRoot.Files.Add(innerFile);
+                    // Data-first inner: store the assembler image verbatim (inode size = on-disk length,
+                    // SizeCompressed = logical mount size) alongside the generated naps.
+                    byte[] pfsImageData = asmResult!.Image;
+                    innerImageAlignedSize = (pfsImageData.Length + BlockSize - 1) / BlockSize * BlockSize;
+                    outerFiles =
+                    [
+                        new ProsperoOuterFile
+                        {
+                            Name = "pfs_image.dat",
+                            Data = pfsImageData,
+                            SizeCompressed = asmResult!.Ndblock * BlockSize,
+                            Signed = false,
+                        },
+                        new ProsperoOuterFile
+                        {
+                            Name = ProsperoNapsLayout.FileName,
+                            Data = nwonlyNaps!,
+                            Signed = true,
+                        },
+                    ];
+                }
+                else
+                {
+                    var innerFile = ResolveInnerCompression(props) switch
+                    {
+                        ProsperoInnerCompression.Zlib => BuildCompressedInnerFile(innerPfs, log, out tmpRawInner, out tmpPfscInner),
+                        ProsperoInnerCompression.Kraken => BuildKrakenInnerFile(innerPfs, log, out tmpRawInner, out tmpPfscInner),
+                        _ => new ProsperoFsFile(innerPfs),
+                    };
 
-                // The block-aligned stored size of pfs_image.dat is what the FIH records at 0xA0 in the
-                // data-first layout and is the sole input to the SI's naps_meta_300 record
-                // (R = alignUp(storedSize) - 0x10000). Our outer PFS is superblock-first, so FIH[0xA0] is
-                // left 0; capture the value here where the stored inner-file size is known.
-                long innerImageAlignedSize =
-                    (innerFile.Size + BlockSize - 1) / BlockSize * BlockSize;
-                var outerProps = new ProsperoPfsProperties
-                {
-                    root = outerRoot,
-                    BlockSize = BlockSize,
-                    Version = ProsperoPfsHeader.VersionPs5,
-                    Encrypt = true,
-                    Sign = true,
-                    EKPFS = ekpfs,
-                    Seed = new byte[16],
-                    FileTime = fileTime,
-                };
-                var outerPfs = new ProsperoPfsBuilder(outerProps, s => log($" [outer] {s}")) { CaptureImageDigests = true, CaptureSuperblockIcv = true };
-                long pfsSize = outerPfs.CalculatePfsSize();
+                    // The block-aligned stored size of pfs_image.dat drives the mount-image mchunk tiling and
+                    // the fixed-image inner-size accounting. Capture it from the stored inner-file size.
+                    innerImageAlignedSize =
+                        (innerFile.Size + BlockSize - 1) / BlockSize * BlockSize;
+
+                    // Render the pfs_image.dat payload (the PFSC-wrapped inner image) so it can be laid out as
+                    // the first file of a data-first outer PFS: file data occupies the leading blocks and the
+                    // superblock follows, so the fixed-image header records the inner-image geometry the
+                    // installer pre-allocates the mount from.
+                    byte[] pfsImageData;
+                    using (var pfsImageBuf = new MemoryStream(checked((int)innerFile.Size)))
+                    {
+                        innerFile.Write(pfsImageBuf);
+                        pfsImageData = pfsImageBuf.ToArray();
+                    }
+
+                    outerFiles =
+                    [
+                        new ProsperoOuterFile
+                        {
+                            Name = "pfs_image.dat",
+                            Data = pfsImageData,
+                            SizeCompressed = innerFile.CompressedSize,
+                            Signed = false,
+                        },
+                        new ProsperoOuterFile
+                        {
+                            Name = ProsperoNapsLayout.FileName,
+                            Data = ProsperoNapsLayout.BuildMinimalLayout(),
+                            Signed = true,
+                        },
+                    ];
+                }
+                var outerImage = ProsperoOuterPfsBuilder.BuildForPackage(
+                    outerFiles,
+                    new ProsperoOuterPfsBuildParameters { TimestampSeconds = fileTime, Seed = new byte[16] },
+                    ekpfs);
+
+                long pfsSize = outerImage.PfsSize;
                 // imagedigs.dat (CNT entry 0x040A) = one 32-byte per-block descriptor digest
                 // per outer-image block. The outer image size is independent of the CNT body, so this
                 // count is known before the container is laid out.
-                int imagedigsSize = checked((int)(pfsSize / BlockSize) * 32);
+                int imagedigsSize = outerImage.ImageDigests.Length;
 
                 // --- Outer container (header + entries). ---
-                var pkg = BuildContainer(props, ekpfs, sourceFolder, (ulong)pfsSize, imagedigsSize, playgoFileCount, chunkDataSize);
+                // The PlayGo chunk descriptor's mchunk table tiles the mount image [0, cnt_offset):
+                // the FIH header block plus the PFS image. cnt_offset is the finalized FIH-relative
+                // image offset plus the PFS image size. The first mchunk covers the block-aligned
+                // inner image; the second covers the remainder up to cnt_offset. Both are non-zero.
+                long mchunkTotal = (long)ProsperoImageDigests.FihRelativeImageOffset + pfsSize;
+                long mchunk0 = innerImageAlignedSize > 0 && innerImageAlignedSize < mchunkTotal
+                    ? innerImageAlignedSize
+                    : mchunkTotal - BlockSize;
+                long mchunk1 = mchunkTotal - mchunk0;
+                var pkg = BuildContainer(props, ekpfs, sourceFolder, (ulong)pfsSize, imagedigsSize, playgoFileCount, (ulong)mchunk0, (ulong)mchunk1);
                 var imagedigsEntry = (ProsperoCntGenericEntry)pkg.Entries.First(e => (uint)e.Id == ImagedigsEntryId);
 
                 long totalSize = (long)(pkg.Header.body_offset + pkg.Header.body_size + pkg.Header.pfs_image_size);
@@ -336,15 +474,14 @@ public static class ProsperoPkgBuilder
                     fs.SetLength(totalSize);
                     log($"Writing outer PFS image at 0x{pkg.Header.pfs_image_offset:X} ({pfsSize:N0} bytes)...");
                     fs.Position = (long)pkg.Header.pfs_image_offset;
-                    outerPfs.WriteImage(new OffsetStream(fs, (long)pkg.Header.pfs_image_offset));
+                    fs.Write(outerImage.Ciphertext, 0, outerImage.Ciphertext.Length);
 
-                    // Fill the imagedigs placeholder with the signer's captured per-block digests (same
-                    // length as the placeholder, so the container layout is unchanged) before the bodies
-                    // and digest tables are written.
-                    byte[]? captured = outerPfs.ImageDigests;
-                    if (captured is { Length: > 0 } && captured.Length == imagedigsEntry.FileData.Length)
-                        imagedigsEntry.FileData = captured;
-                    ProsperoPfsImageXmlOptions siXml = FinishContainer(pkg, fs, props, innerImageDigest, log);
+                    // Fill the imagedigs placeholder with the captured per-block digests (same length as
+                    // the placeholder, so the container layout is unchanged) before the bodies and digest
+                    // tables are written.
+                    if (outerImage.ImageDigests.Length == imagedigsEntry.FileData.Length)
+                        imagedigsEntry.FileData = outerImage.ImageDigests;
+                    ProsperoPfsImageXmlOptions siXml = FinishContainer(pkg, fs, props, innerImageDigest, nestedFieldSize, capturedNestedMetaBaseBlocks, capturedNwonlyFih, log);
 
                     // Capture the reproducible SI inputs so the finalizer can build the sce_suppl segment:
                     // the pfsimage.xml options (with the now-computed self-consistent digests) plus a verbatim
@@ -355,8 +492,14 @@ public static class ProsperoPkgBuilder
                     // inode trees and the PlayGo chunk map so pfsimage.xml describes the exact image
                     // that was produced.
                     long mountImageTotal = siXml.PfsImageOffset + siXml.PfsImageSize;
-                    siXml.OuterPfsTree = outerPfs.CaptureImageTree();
-                    siXml.NestedPfsTree = innerPfs.CaptureImageTree();
+                    siXml.OuterPfsTree = outerImage.Tree;
+                    // nwonly: describe the <nested-image> from the reconstructed inner mount (correct
+                    // 0x4a0000 geometry + flat-path tables + poffsets/afids). Non-nwonly keeps the outer
+                    // inner-pfs snapshot.
+                    if (nwonly && asmResult is not null)
+                        siXml.NestedInner = asmResult;
+                    else
+                        siXml.NestedPfsTree = innerPfs.CaptureImageTree();
                     siXml.ChunkInfo = new ProsperoChunkInfoModel
                     {
                         PlayGoChunkDatSize = playGoChunkDat?.Length ?? 0,
@@ -420,7 +563,7 @@ public static class ProsperoPkgBuilder
 
         byte[] container = ProsperoCompressedPfsImage.Pack(rawBytes);
 
-        // In-process acceptance gate: the decoder must reconstruct the raw image byte-exact.
+        // In-process acceptance gate: the decoder must reconstruct the raw image losslessly.
         byte[] restored = ProsperoCompressedPfsFile.Parse(container).Decompress();
         bool roundTripOk = restored.Length == rawBytes.Length && restored.AsSpan().SequenceEqual(rawBytes);
         if (!roundTripOk || container.Length >= rawBytes.Length)
@@ -508,9 +651,9 @@ public static class ProsperoPkgBuilder
         catch (UnauthorizedAccessException) { /* best-effort temp cleanup */ }
     }
 
-    // Builds the FSDir tree from the source folder, injecting the inner-only auxiliary sce_sys files
-    // that the publishing pipeline generates during PKG building (these are NOT part of the loose
-    // input): sce_sys/keystone and sce_sys/about/right.sprx. imagedigs.dat and the PlayGo descriptors
+    // Builds the FSDir tree from the source folder, injecting inner-only auxiliary sce_sys files
+    // that are generated during PKG building and are not part of the loose input: keystone and
+    // the about entitlement module. imagedigs.dat and the PlayGo descriptors
     // are OUTER CNT entries (see BuildContainer), not inner-PFS files.
     private static ProsperoFsDir BuildInnerTree(string sourceFolder, string passcode)
     {
@@ -520,7 +663,7 @@ public static class ProsperoPkgBuilder
         var sceSys = root.Dirs.FirstOrDefault(d => d.name == "sce_sys");
         if (sceSys != null)
         {
-            // sce_sys/keystone — generated from the passcode if the project did not supply one.
+            // keystone — generated from the passcode if the project did not supply one.
             if (!sceSys.Files.Any(f => f.name == "keystone"))
             {
                 var keystone = Crypto.CreateKeystone(passcode, 3); // PS5 keystone header version
@@ -530,13 +673,30 @@ public static class ProsperoPkgBuilder
             EnsureAboutRightSprx(sceSys);
             EnsureUcpArchives(sceSys);
 
+            // Remove the sce_sys files that are OUTER CNT entries: param.json (id 0x2000) and every
+            // NameToId media/system file (icon0.png, playgo-*.dat, imagedigs.dat, license.*, ...). They are
+            // carried in the outer container (BuildContainer), never the inner image. Filtering them here —
+            // the same rule the inner-PFS builder and ProsperoPs5InnerImageAssembler apply — keeps the inner
+            // file tree, the PlayGo file count and the SI inner-tree snapshot all consistent with the
+            // materialized inner image (keystone, the about entitlement module, and the app payload).
+            RemoveOuterCntInnerFiles(sceSys, "");
+
             // NOTE: imagedigs.dat and the PlayGo descriptors (playgo-chunk.dat, playgo-hash-table.dat,
             // playgo-ficm.dat) are NOT inner-PFS files. They are OUTER CNT entries — ids 0x040A, 0x1001,
-            // 0x2010, 0x2011 — and the inner-PFS builder deliberately filters any sce_sys file whose name
-            // is a known CNT id out of the inner image. They are generated as CNT entries in
-            // BuildContainer instead.
+            // 0x2010, 0x2011 — generated as CNT entries in BuildContainer instead.
         }
         return root;
+
+        static void RemoveOuterCntInnerFiles(ProsperoFsDir dir, string relPrefix)
+        {
+            dir.Files.RemoveAll(f =>
+            {
+                string rel = relPrefix + f.name;
+                return rel == "param.json" || ProsperoCntEntryNames.NameToId.ContainsKey(rel);
+            });
+            foreach (var sub in dir.Dirs)
+                RemoveOuterCntInnerFiles(sub, relPrefix + sub.name + "/");
+        }
 
         static void AddFile(ProsperoFsDir dir, string name, byte[] data) =>
             dir.Files.Add(new ProsperoFsFile(s => s.Write(data, 0, data.Length), name, data.Length) { Parent = dir });
@@ -560,11 +720,9 @@ public static class ProsperoPkgBuilder
         }
     }
 
-    // sce_sys/about/right.sprx — the entitlement module the runtime loads from the package's about
-    // directory. A supplied file always wins; when the project does not ship one, the embedded debug
-    // module is injected so the package layout is complete. The publishing tool selects this module
-    // by content type from a fixed embedded set; the library ships one debug default and never
-    // rewrites a caller-supplied module.
+    // The about entitlement module is loaded from the package's about directory. A supplied file always
+    // wins; when the project does not ship one, the embedded debug module is injected so the package
+    // layout is complete. The library ships one debug default and never rewrites a caller-supplied module.
     private static void EnsureAboutRightSprx(ProsperoFsDir sceSys)
     {
         var about = FindDir(sceSys, "about");
@@ -620,7 +778,7 @@ public static class ProsperoPkgBuilder
 
     private static ProsperoCnt BuildContainer(
         ProsperoPkgBuildProperties props, byte[] ekpfs, string sourceFolder,
-        ulong pfsSize, int imagedigsSize, uint playgoFileCount, ulong chunkDataSize)
+        ulong pfsSize, int imagedigsSize, uint playgoFileCount, ulong mchunk0Size, ulong mchunk1Size)
     {
         uint contentType = ContentTypeFor(props.VolumeType);
         var pkg = new ProsperoCnt
@@ -629,7 +787,7 @@ public static class ProsperoPkgBuilder
             {
                 CNTMagic = "\u007fCNT",
                 flags = (ProsperoCntFlags)FlagsPs5,
-                unk_0x08 = 0,
+                unk_0x08 = Unk08Ps5,
                 unk_0x0C = Unk0CPs5,
                 entry_count = 0,
                 sc_entry_count = 6,
@@ -639,14 +797,19 @@ public static class ProsperoPkgBuilder
                 body_offset = BodyOffset,
                 body_size = 0,
                 content_id = props.ContentId,
-                drm_type = DrmTypePs5,
+                drm_type = DrmTypeNone,
                 content_type = contentType,
                 content_flags = ContentFlagsFor(props.VolumeType),
                 promote_size = 0,
-                version_date = 0x20260101,
-                version_hash = 0,
+                // version_date / version_hash are FIXED PS5 package-format constants (NOT a real date/hash):
+                // 0x20200722 / 0x01fe52e9. version_hash must be nonzero because DbgInstall reads CNT+0x84
+                // and logs "not support signature.(0x00000000)" when the field is zero. Matches
+                // ProsperoSiArchive.VersionDate/VersionHash
+                // used for the pfsimage.xml <version-date>/<version-hash>.
+                version_date = 0x20200722,
+                version_hash = 0x01fe52e9,
                 iro_tag = ProsperoCntIroTag.None,
-                ekc_version = 1,
+                ekc_version = 0,  // license-free; drm-type none uses EKC v0
                 sc_entries1_hash = new byte[32],
                 sc_entries2_hash = new byte[32],
                 digest_table_hash = new byte[32],
@@ -667,7 +830,7 @@ public static class ProsperoPkgBuilder
                 pfs_split_size_nth_1 = 0,
             },
             HeaderDigest = new byte[32],
-            HeaderSignature = new byte[0x100],
+            HeaderSignature = new byte[ProsperoPkgSigner.SignatureSize],
         };
 
         // System-container entries (the 6 SC entries), ids 0x1/0x10/0x20/0x80/0x100/0x200.
@@ -696,10 +859,6 @@ public static class ProsperoPkgBuilder
             paramEntry,
         };
 
-        // sce_sys media entries (icon0.png, pic0.png, pic1.png, snd0.at9, ...) present in the folder.
-        foreach (var media in CollectMediaEntries(sourceFolder))
-            pkg.Entries.Add(media);
-
         // PS5 image-digest + PlayGo descriptor CNT entries. The package layout has
         // these as OUTER CNT entries — imagedigs.dat
         // (id 0x040A, UNNAMED), playgo-chunk.dat (0x1001), playgo-hash-table.dat (0x2010) and
@@ -708,17 +867,37 @@ public static class ProsperoPkgBuilder
         // written. The PlayGo file/inode count drives playgo-ficm.dat (count) and playgo-hash-table.dat
         // (count / 2), self-consistent. Any entry the source folder already
         // supplied (e.g. a hand-authored playgo-chunk.dat) is respected and not regenerated.
-        foreach (var (id, name, data) in new (uint Id, string? Name, byte[] Data)[]
+        //
+        // Entry (container data) order:
+        //   param.json, imagedigs.dat, playgo-chunk.dat, <media...>, playgo-hash-table.dat, playgo-ficm.dat.
+        // imagedigs.dat carries the per-block image digests the installer reads to validate the
+        // supplemental/mandatory region, so it (and playgo-chunk.dat) must precede the large media
+        // entries (icon0.png/icon0.dds). Placing media first inflates <mandatory-size> (= imagedigs
+        // offset) and pushes imagedigs past the mandatory prefix, which the FW10.01 installer rejects.
+        void AddDescriptorEntries((uint Id, string? Name, byte[] Data)[] descriptors)
         {
+            foreach (var (id, name, data) in descriptors)
+                if (!pkg.Entries.Any(e => (uint)e.Id == id))
+                    pkg.Entries.Add(new ProsperoCntGenericEntry((ProsperoCntEntryId)id, name) { FileData = data });
+        }
+
+        // imagedigs.dat + playgo-chunk.dat come BEFORE the media entries.
+        AddDescriptorEntries(
+        [
             (ImagedigsEntryId, null, new byte[imagedigsSize]),
-            (0x1001u, "playgo-chunk.dat", LibProsperoPkg.PlayGo.ProsperoPlayGo.BuildChunkDat(props.ContentId, chunkDataSize)),
+            (0x1001u, "playgo-chunk.dat", LibProsperoPkg.PlayGo.ProsperoPlayGo.BuildChunkDat(props.ContentId, mchunk0Size, mchunk1Size)),
+        ]);
+
+        // sce_sys media entries (icon0.png, pic0.png, pic1.png, snd0.at9, ...) present in the folder.
+        foreach (var media in CollectMediaEntries(sourceFolder))
+            pkg.Entries.Add(media);
+
+        // playgo-hash-table.dat + playgo-ficm.dat come AFTER the media entries.
+        AddDescriptorEntries(
+        [
             (0x2010u, "playgo-hash-table.dat", LibProsperoPkg.PlayGo.ProsperoPlayGo.BuildHashTable(playgoFileCount / 2)),
             (0x2011u, "playgo-ficm.dat", LibProsperoPkg.PlayGo.ProsperoPlayGo.BuildFicm(playgoFileCount)),
-        })
-        {
-            if (!pkg.Entries.Any(e => (uint)e.Id == id))
-                pkg.Entries.Add(new ProsperoCntGenericEntry((ProsperoCntEntryId)id, name) { FileData = data });
-        }
+        ]);
 
         pkg.Digests.FileData = new byte[pkg.Entries.Count * ProsperoCnt.HASH_SIZE];
 
@@ -774,7 +953,7 @@ public static class ProsperoPkgBuilder
         pkg.Header.entry_count = (uint)pkg.Entries.Count;
         pkg.Header.entry_count_2 = (ushort)pkg.Entries.Count;
         pkg.Header.entry_table_offset = pkg.Metas.meta.DataOffset;
-        pkg.Header.body_size = Align(pkg.Header.body_offset + bodySize, 0x80000) - pkg.Header.body_offset;
+        pkg.Header.body_size = Align(pkg.Header.body_offset + bodySize, 0x10000) - pkg.Header.body_offset;
         pkg.Header.main_ent_data_size = (uint)(new ProsperoCntEntry[]
         {
             pkg.EntryKeys, pkg.ImageKey, pkg.GeneralDigests, pkg.Metas, pkg.Digests,
@@ -783,9 +962,17 @@ public static class ProsperoPkgBuilder
         pkg.Header.pfs_image_offset = pkg.Header.body_offset + pkg.Header.body_size;
         pkg.Header.package_size = pkg.Header.mount_image_size =
             pkg.Header.body_offset + pkg.Header.body_size + pkg.Header.pfs_image_size;
+
+        // promote_size (CNT 0x7C) = the CNT container size (body_offset + body_size = CNT-internal
+        // pfs_image_offset). mandatory_size (CNT 0x30) = the imagedigs entry offset (size of the mandatory
+        // install region). Both are read by the DbgInstall pre-allocation transfer; leaving them 0 trips
+        // "not support signature.(0x0)" + transfer failed 0x80b21171. Both fields must be nonzero;
+        // promote_size is the CNT size and mandatory_size is the imagedigs entry offset.
+        pkg.Header.promote_size = (uint)pkg.Header.pfs_image_offset;
+        pkg.Header.mandatory_size = pkg.Metas.Metas.First(m => (uint)m.id == ImagedigsEntryId).DataOffset;
     }
 
-    private static ProsperoPfsImageXmlOptions FinishContainer(ProsperoCnt pkg, Stream s, ProsperoPkgBuildProperties props, byte[]? nestedImageDigest, Action<string> log)
+    private static ProsperoPfsImageXmlOptions FinishContainer(ProsperoCnt pkg, Stream s, ProsperoPkgBuildProperties props, byte[]? nestedImageDigest, long nestedImageSize, long nestedMetaBaseBlocks, ProsperoFihNwonlyFields? nwonlyFih, Action<string> log)
     {
         // Read the outer PFS image (encrypted blocks + plaintext superblock) so the PS5 mount digests can be
         // computed for the mount image — both are SHA3-256, NOT SHA-256:
@@ -803,7 +990,11 @@ public static class ProsperoPkgBuilder
         byte[] fihBlock = ProsperoFihBuilder.BuildFihHeaderBlock(
             ProsperoFihVariant.Debug, pkg.Header.pfs_image_size,
             ProsperoImageDigests.FihRelativeImageOffset + pkg.Header.pfs_image_size, image,
-            warnings: null, nestedImageDigest: nestedImageDigest);
+            warnings: null, nestedImageDigest: nestedImageDigest, nestedImageSize: nestedImageSize,
+            nestedMetaBaseBlocks: nestedMetaBaseBlocks,
+            nwonlyContentVersionHi: nwonlyFih?.ContentVersionHi ?? 0,
+            nwonlyInnerContentInodes: nwonlyFih?.InnerContentInodes ?? 0,
+            nwonlyAppFileCount: nwonlyFih?.AppFileCount ?? 0);
         pkg.Header.pfs_signed_digest = ProsperoImageDigests.ComputeFixedInfoDigest(fihBlock);
 
         // General digests (PS5 nwonly scheme: type 0x102 [set at creation so the layout reserves 0x1E0],
@@ -817,25 +1008,30 @@ public static class ProsperoPkgBuilder
         writer.WriteBody(pkg, props.ContentId, props.Passcode);
         CalcBodyDigests(pkg, s);
 
-        // Header, header digest and the fake header signature.
+        // Header, header digest and the header signature.
         s.Position = 0;
         writer.WriteHeader(pkg.Header);
-        // Package-digest (the CNT self-seal at +0xFE0): PS5 uses SHA3-256(CNT[0:0xFE0]), NOT SHA-256.
-        // The preimage spans 0x410 (pfs_image_offset); BuildFromCnt rewrites that field to the FIH-relative
-        // 0x10000 when it finalizes the image, so force 0x10000 here too — otherwise the stored seal would be
-        // over the physical offset and would not match a verifier reading the finalized package.
+        // Package-digest (the CNT self-seal at +0xFE0): SHA3-256(CNT[0:0xFE0]). The preimage spans 0x410
+        // (pfs_image_offset); BuildFromCnt rewrites that field to the FIH-relative 0x10000 when it finalizes
+        // the image, so force 0x10000 here too — otherwise the stored seal would be over the physical offset
+        // and would not match a verifier reading the finalized package. The full 0x1000-byte header region is
+        // held so the header signature can be taken over the same finalized bytes.
         s.Position = 0;
-        byte[] cntHead = new byte[ProsperoImageDigests.PackageDigestRegionSize];
+        byte[] cntHead = new byte[0x1000];
         s.ReadExactly(cntHead);
         BinaryPrimitives.WriteUInt64BigEndian(
             cntHead.AsSpan(ProsperoImageDigests.CntPfsImageOffsetField, 8), ProsperoImageDigests.FihRelativeImageOffset);
         pkg.HeaderDigest = ProsperoImageDigests.ComputePackageDigest(cntHead);
+        pkg.HeaderDigest.CopyTo(cntHead.AsSpan(ProsperoImageDigests.PackageDigestStoredOffset));
         s.Position = ProsperoImageDigests.PackageDigestStoredOffset;
         s.Write(pkg.HeaderDigest, 0, pkg.HeaderDigest.Length);
-        byte[] headerSha = Crypto.Sha256(s, 0, 0x1000);
+
+        // Header signature (+0x1000): SHA3-256 over the finalized 0x1000-byte header region (digest included),
+        // sealed with the metadata RSA-3072 key. 384 bytes.
+        byte[] headerDigest = ProsperoImageDigests.Sha3_256(cntHead);
+        pkg.HeaderSignature = ProsperoPkgSigner.EncryptHeaderDigest(headerDigest);
         s.Position = 0x1000;
-        pkg.HeaderSignature = Crypto.RSA2048EncryptKey(LibProsperoPkg.Util.CryptoKeys.PkgSignKey, headerSha);
-        s.Write(pkg.HeaderSignature, 0, 256);
+        s.Write(pkg.HeaderSignature, 0, pkg.HeaderSignature.Length);
 
         // Every digest, the geometry and the entry table are now finalized on this CNT, so the reproducible
         // SI pfsimage.xml options can be assembled from the builder's own output. The inner-PFS seed is read
@@ -891,6 +1087,7 @@ public static class ProsperoPkgBuilder
             ApplicationType = pj.ApplicationDrmType,
             MasterVersion = pj.MasterVersion,
             RequiredSystemSoftwareVersion = pj.RequiredSystemSoftwareVersion,
+            RequiredSystemVersion = FormatSystemVersion(pj.RequiredSystemSoftwareVersion),
             SdkVersion = pj.SdkVersion,
             PackageSize = packageSize,
             PfsImageOffset = (long)ProsperoImageDigests.FihRelativeImageOffset,
@@ -939,6 +1136,44 @@ public static class ProsperoPkgBuilder
     private readonly record struct ParamJsonInfo(
         string ContentVersion, string MasterVersion, string SdkVersion,
         string RequiredSystemSoftwareVersion, string ApplicationDrmType, string TitleName);
+
+    /// <summary>
+    /// FIH 0x9C value: the high 32 bits of the param/content_ver u64 stored in the FIH header.
+    /// <paramref name="contentVersion"/> is the param.json "MM.mmm.ppp" string (e.g. "01.000.000"); the major
+    /// field is BCD-encoded into the top byte, giving 0x01000000 for content version 01.00.
+    /// </summary>
+    private static uint ContentVersionHigh(string contentVersion)
+    {
+        if (string.IsNullOrWhiteSpace(contentVersion)) return 0;
+        string major = contentVersion.Split('.')[0].Trim();
+        if (major.Length is 0 or > 2) return 0;
+        if (!byte.TryParse(major, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out byte mm))
+            return 0;
+        uint bcd = (uint)(((mm / 10) << 4) | (mm % 10));   // decimal major -> BCD (01 -> 0x01, 12 -> 0x12)
+        return bcd << 24;
+    }
+
+    /// <summary>
+    /// Formats a 64-bit hex firmware value (param.json <c>requiredSystemSoftwareVersion</c>, e.g.
+    /// <c>0x0200000000000000</c>) as the pfsimage.xml <c>&lt;required-system-version&gt;</c> display
+    /// string <c>"MM.mmm.ppp.bbbbbbbb"</c> (grouped 2.3.3.8 hex digits).
+    /// <c>0x0200000000000000</c> -> <c>"02.000.000.00000000"</c>. Falls back to the all-zero string on
+    /// any malformed input.
+    /// </summary>
+    private static string FormatSystemVersion(string? hexValue)
+    {
+        const string zero = "00.000.000.00000000";
+        if (string.IsNullOrWhiteSpace(hexValue)) return zero;
+        string h = hexValue.Trim();
+        if (h.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) h = h[2..];
+        if (h.Length == 0 || h.Length > 16 || !ulong.TryParse(h,
+                System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out ulong _))
+            return zero;
+        h = h.PadLeft(16, '0');
+        return $"{h[..2]}.{h.Substring(2, 3)}.{h.Substring(5, 3)}.{h.Substring(8, 8)}";
+    }
 
     // Best-effort param.json reader for the pfsimage.xml string fields. Any parse failure falls back to
     // the neutral defaults (the produced XML stays structurally valid and self-consistent).
@@ -1115,7 +1350,37 @@ public static class ProsperoPkgBuilder
         var path = Path.Combine(sourceFolder, "sce_sys", "param.json");
         if (!File.Exists(path))
             throw new FileNotFoundException("sce_sys/param.json is required to build a PS5 package.", path);
-        return File.ReadAllBytes(path);
+        return NormalizeParamJson(File.ReadAllBytes(path));
+    }
+
+    /// <summary>
+    /// The SDK / minimum-firmware baseline stamped into a packaged param.json when the source leaves the
+    /// field zero — SDK/firmware 2.00. Installs on any console at or above 2.00.
+    /// </summary>
+    private const string ParamVersionBaseline = "0x0200000000000000";
+
+    // An all-zero sdkVersion or requiredSystemSoftwareVersion is promoted to the 2.00 baseline
+    // (0x0200000000000000). The console reads sdkVersion from the param.json CNT entry during install;
+    // a zero value is rejected. Only the value text changes so the rest of the entry is preserved.
+    private static byte[] NormalizeParamJson(byte[] paramJson)
+    {
+        if (paramJson.Length == 0)
+            return paramJson;
+        string text;
+        try { text = Encoding.UTF8.GetString(paramJson); }
+        catch { return paramJson; }
+
+        string updated = PromoteZeroVersion(text, "sdkVersion");
+        updated = PromoteZeroVersion(updated, "requiredSystemSoftwareVersion");
+        return ReferenceEquals(updated, text) || updated == text ? paramJson : Encoding.UTF8.GetBytes(updated);
+    }
+
+    // Replaces an all-zero hex value ("0x0", "0x0000000000000000", ...) for the given key with the baseline,
+    // leaving a nonzero value untouched. Anchored on the exact key so no other field is affected.
+    private static string PromoteZeroVersion(string json, string key)
+    {
+        var rx = new Regex("(\"" + Regex.Escape(key) + "\"\\s*:\\s*\")0x0+(\")");
+        return rx.Replace(json, "${1}" + ParamVersionBaseline + "$2", 1);
     }
 
     // Known sce_sys media files and their PS5 entry ids (the inspection-relevant subset).

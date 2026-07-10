@@ -69,7 +69,7 @@ public class ProsperoPfscReader : IMemoryReader
     /// <param name="output">byte array where sector will be written</param>
     public void ReadSector(int idx, byte[] output)
     {
-        if (idx < 0 || idx > sectorMap.Length - 1)
+        if (idx < 0 || idx >= sectorMap.Length - 1)
             throw new ArgumentException("Invalid index", nameof(idx));
 
         var sectorOffset = sectorMap[idx];

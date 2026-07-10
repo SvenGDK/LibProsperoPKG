@@ -1,12 +1,12 @@
-// C ABI surface for the shared-library builds produced by the native workflows.
+// C ABI surface for the shared-library builds.
 //
 // This file is NOT part of the normal managed build. It lives outside the project
 // directory so the SDK never compiles it into the class library or its package. The
-// native workflows copy it into the project directory and enable AOT/shared-library
+// build workflows copy it into the project directory and enable shared-library
 // output before publishing, so the exported entry points only exist in the .so/.dylib
 // artifacts.
 //
-// Every export uses UnmanagedCallersOnly so the AOT compiler emits a plain C symbol.
+// Every export uses UnmanagedCallersOnly so the compiler emits a plain C symbol.
 // Strings cross the boundary as UTF-8 (NUL-terminated `const char*`); output strings are
 // copied into caller-provided buffers, so the caller owns all memory. Enum arguments are
 // passed as 32-bit integers whose values are documented in libprosperopkg.h.
@@ -19,23 +19,30 @@
 // return 0 on success or a negative value on failure.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using LibProsperoPkg;
 using LibProsperoPkg.Content;
 using LibProsperoPkg.DiscBackup;
+using LibProsperoPkg.GP5;
 using LibProsperoPkg.License;
+using LibProsperoPkg.Metadata;
 using LibProsperoPkg.NpDrm;
+using LibProsperoPkg.PFS;
 using LibProsperoPkg.PFS.Compression;
 using LibProsperoPkg.PKG;
+using LibProsperoPkg.PlayGo;
 
 namespace LibProsperoPkg.Native;
 
 /// <summary>
 /// Blittable mirror of the C <c>lpp_build_options</c> struct. Passed by pointer to
 /// <see cref="NativeExports.BuildPackageEx"/>. The layout must match libprosperopkg.h exactly:
-/// ten 32-bit integers, three 64-bit integers, then the UTF-8 string pointers.
+/// ten 32-bit integers, three 64-bit integers, the UTF-8 string pointers, then a trailing
+/// 32-bit integer. Fields are only appended, so an older caller's <c>StructSize</c> guards
+/// access to newer trailing fields.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct LppBuildOptions
@@ -63,6 +70,8 @@ internal unsafe struct LppBuildOptions
     public byte* TitleId;
     public byte* Version;
     public byte* ApplicationDrmType;
+
+    public int LicenseFree;        // 0/1 (DRM/license-free debug package: fake-sign + free bucket)
 }
 
 /// <summary>
@@ -121,15 +130,97 @@ internal unsafe struct LppRifSummary
     public fixed byte ServiceId[16];
 }
 
+/// <summary>
+/// Blittable mirror of the C <c>lpp_package_summary</c> struct filled by
+/// <see cref="NativeExports.ReadPackageSummary"/>. The layout must match libprosperopkg.h exactly.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct LppPackageSummary
+{
+    public int StructSize;
+    public int PackageType;      // LPP_TYPE_*
+    public int IsOfficial;       // 0/1
+    public int FihFormatVersion;
+    public uint Flags;
+    public uint EntryCount;
+    public uint ScEntryCount;
+    public uint DrmType;
+    public uint ContentType;
+    public uint ContentFlags;
+    public long PfsImageOffset;
+    public long PfsImageSize;
+    public long EmbeddedCntOffset;
+    public fixed byte ContentId[64];
+}
+
+/// <summary>
+/// Blittable mirror of the C <c>lpp_package_entry</c> struct filled by
+/// <see cref="NativeExports.ReadPackageEntry"/>. The layout must match libprosperopkg.h exactly.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct LppPackageEntry
+{
+    public int StructSize;
+    public uint RawId;
+    public int Id;               // LPP_ENTRY_*
+    public uint Flags1;
+    public uint Flags2;
+    public uint DataOffset;
+    public uint DataSize;
+    public int Encrypted;        // 0/1
+    public uint KeyIndex;
+    public fixed byte Name[64];
+}
+
+/// <summary>
+/// Blittable mirror of the C <c>lpp_elf_info</c> struct filled by
+/// <see cref="NativeExports.ReadElfHeader"/>. The layout must match libprosperopkg.h exactly.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct LppElfInfo
+{
+    public int StructSize;
+    public int Class;
+    public int Data;
+    public int OsAbi;
+    public int AbiVersion;
+    public int Type;
+    public int Machine;
+    public ulong Entry;
+    public uint Flags;
+    public int ProgramHeaderCount;
+    public int IsExecutable;     // 0/1
+    public int IsDynamic;        // 0/1
+    public int IsModuleType;     // 0/1
+    public int IsModuleReady;    // 0/1
+}
+
+/// <summary>
+/// Blittable mirror of the C <c>lpp_launch_readiness</c> struct filled by
+/// <see cref="NativeExports.InspectLaunchReadiness"/>. The layout must match libprosperopkg.h exactly.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct LppLaunchReadiness
+{
+    public int StructSize;
+    public int HasEboot;             // 0/1
+    public int HasParamJson;         // 0/1
+    public int HasParamSfo;          // 0/1
+    public int RequiresDebugConsole; // 0/1
+    public int IsLaunchReady;        // 0/1
+    public int ModuleCount;
+    public int IssueCount;
+}
+
 internal static unsafe class NativeExports
 {
     // Bump when the exported surface changes in a way consumers can gate on.
-    private const int AbiVersionValue = 3;
+    private const int AbiVersionValue = 6;
 
     [ThreadStatic]
     private static string? _lastError;
 
-    private static readonly byte* VersionPtr = AllocUtf8("LibProsperoPkg 1.3.0");
+    private static readonly byte* VersionPtr = AllocUtf8("LibProsperoPkg 2.0.0");
 
     /// <summary>Returns a pointer to a static, NUL-terminated version string.</summary>
     [UnmanagedCallersOnly(EntryPoint = "lpp_version")]
@@ -260,6 +351,9 @@ internal static unsafe class NativeExports
                 CompressInnerImage = o.CompressInnerImage != 0,
                 FakeSignSelfModules = o.FakeSignSelf != 0,
             };
+
+            if (o.StructSize >= sizeof(LppBuildOptions) && o.LicenseFree != 0)
+                build.LicenseFree = true;
 
             string? drm = Utf8ToString(o.ApplicationDrmType);
             if (!string.IsNullOrEmpty(drm))
@@ -970,6 +1064,727 @@ internal static unsafe class NativeExports
             _lastError = ex.Message;
             return -1;
         }
+    }
+
+    /// <summary>
+    /// Converts a decrypted application backup into a debug package. Substitutes each signed
+    /// executable with its raw ELF from the decrypted subtree, fake-signs the modules, and builds a
+    /// debug image whose mount key derives from the content id and passcode. <paramref name="contentId"/>
+    /// and <paramref name="version"/> may be NULL/empty to take them from the backup's param.json;
+    /// <paramref name="passcode"/> may be NULL/empty for the all-zero default. The substituted-module
+    /// count is written to <paramref name="substitutedCount"/> when non-NULL. The output path is
+    /// written into <paramref name="outPath"/> as UTF-8.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_convert_backup")]
+    public static int ConvertBackup(
+        byte* backupFolder,
+        byte* outputFolder,
+        byte* contentId,
+        byte* passcode,
+        byte* version,
+        int* substitutedCount,
+        byte* outPath,
+        int outPathCapacity)
+    {
+        try
+        {
+            string? b = Utf8ToString(backupFolder);
+            string? o = Utf8ToString(outputFolder);
+            if (string.IsNullOrEmpty(b) || string.IsNullOrEmpty(o))
+            {
+                _lastError = "backup_folder and output_folder are required";
+                return -1;
+            }
+
+            var options = new ProsperoBackupConversionOptions
+            {
+                BackupFolder = b,
+                OutputFolder = o,
+                ContentId = Utf8ToString(contentId) ?? "",
+                Passcode = Fallback(Utf8ToString(passcode), new string('0', 32)),
+                Version = Utf8ToString(version) ?? "",
+            };
+
+            ProsperoBackupConversionResult result = ProsperoBackupConverter.Convert(options);
+            if (substitutedCount is not null) *substitutedCount = result.SubstitutedModules.Count;
+            int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
+            return written < 0 ? written : 0;
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    // ---- Package read model -----------------------------------------------------------------
+
+    /// <summary>
+    /// Reads a package and fills <paramref name="outInfo"/> with header and image-header fields:
+    /// package type, entry counts, DRM/content type and flags, content id, and PFS image offset,
+    /// size, and embedded container offset.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_read_package_summary")]
+    public static int ReadPackageSummary(byte* path, LppPackageSummary* outInfo)
+    {
+        try
+        {
+            if (outInfo is null) { _lastError = "output pointer is null"; return -1; }
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+
+            ProsperoPkg pkg = ProsperoPkgReader.Read(p);
+            LppPackageSummary o = default;
+            o.StructSize = sizeof(LppPackageSummary);
+            o.PackageType = (int)pkg.Type;
+            o.IsOfficial = pkg.Fih?.IsOfficial == true ? 1 : 0;
+            o.FihFormatVersion = pkg.Fih?.FormatVersion ?? 0;
+            o.Flags = pkg.Header?.Flags ?? 0u;
+            o.EntryCount = pkg.Header?.EntryCount ?? (uint)pkg.Entries.Count;
+            o.ScEntryCount = (uint)(pkg.Header?.ScEntryCount ?? 0);
+            o.DrmType = pkg.Header?.DrmType ?? 0u;
+            o.ContentType = pkg.Header?.ContentType ?? 0u;
+            o.ContentFlags = pkg.Header?.ContentFlags ?? 0u;
+            o.PfsImageOffset = (long)(pkg.Fih?.PfsImageOffset ?? 0UL);
+            o.PfsImageSize = (long)(pkg.Fih?.PfsImageSize ?? 0UL);
+            o.EmbeddedCntOffset = (long)(pkg.Fih?.EmbeddedCntOffset ?? 0UL);
+            *outInfo = o;
+            WriteUtf8Fixed(pkg.Header?.ContentId ?? "", outInfo->ContentId, 64);
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Reads a package and returns its entry count.</summary>
+    /// <returns>The number of entries, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_package_entry_count")]
+    public static int PackageEntryCount(byte* path)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+            return ProsperoPkgReader.Read(p).Entries.Count;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Reads a single entry (by zero-based index) into <paramref name="outEntry"/>: id, raw id,
+    /// flags, data offset and size, encryption flag, key index, and name.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_read_package_entry")]
+    public static int ReadPackageEntry(byte* path, int index, LppPackageEntry* outEntry)
+    {
+        try
+        {
+            if (outEntry is null) { _lastError = "output pointer is null"; return -1; }
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+
+            ProsperoPkg pkg = ProsperoPkgReader.Read(p);
+            if (index < 0 || index >= pkg.Entries.Count) { _lastError = "entry index out of range"; return -1; }
+
+            ProsperoPkgEntry e = pkg.Entries[index];
+            LppPackageEntry o = default;
+            o.StructSize = sizeof(LppPackageEntry);
+            o.RawId = e.RawId;
+            o.Id = (int)e.Id;
+            o.Flags1 = e.Flags1;
+            o.Flags2 = e.Flags2;
+            o.DataOffset = e.DataOffset;
+            o.DataSize = e.DataSize;
+            o.Encrypted = e.Encrypted ? 1 : 0;
+            o.KeyIndex = e.KeyIndex;
+            *outEntry = o;
+            WriteUtf8Fixed(e.Name ?? "", outEntry->Name, 64);
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Lists the inner files of a package (newline-separated relative paths) using a passcode.
+    /// <paramref name="passcode"/> may be NULL/empty for the all-zero default.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_list_package_files")]
+    public static int ListPackageFiles(byte* path, byte* passcode, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+
+            ProsperoExtractionKey key = ProsperoExtractionKey.FromPasscode(Fallback(Utf8ToString(passcode), new string('0', 32)));
+            return WriteUtf8(JoinRelativePaths(ProsperoPackageExtractor.ListFiles(p, key)), outBuffer, capacity);
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Lists the inner files of a package (newline-separated relative paths) using a 32-byte
+    /// image key supplied at <paramref name="ekpfs32"/>.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_list_package_files_ekpfs")]
+    public static int ListPackageFilesEkpfs(byte* path, byte* ekpfs32, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+            if (ekpfs32 is null) { _lastError = "ekpfs pointer is null"; return -1; }
+
+            ProsperoExtractionKey key = ProsperoExtractionKey.FromEkpfs(new ReadOnlySpan<byte>(ekpfs32, 32));
+            return WriteUtf8(JoinRelativePaths(ProsperoPackageExtractor.ListFiles(p, key)), outBuffer, capacity);
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Compares two metadata containers and writes the differences (newline-separated) into
+    /// <paramref name="outBuffer"/>. An empty result means the containers match.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_compare_containers")]
+    public static int CompareContainers(byte* referencePath, byte* candidatePath, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string? r = Utf8ToString(referencePath);
+            string? c = Utf8ToString(candidatePath);
+            if (string.IsNullOrEmpty(r) || string.IsNullOrEmpty(c))
+            { _lastError = "reference and candidate paths are required"; return -1; }
+
+            IReadOnlyList<string> diffs = ProsperoPackageBuilder.CompareContainers(r, c);
+            return WriteUtf8(string.Join('\n', diffs), outBuffer, capacity);
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Merges every split package found in <paramref name="inputDir"/> and writes the resulting
+    /// output paths (newline-separated) into <paramref name="outBuffer"/>. Pass a non-zero
+    /// <paramref name="computeDigest"/> to compute a SHA-256 for each merged package.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_merge_split_package_dir")]
+    public static int MergeSplitPackageDir(byte* inputDir, byte* outputDir, int computeDigest, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string? inDir = Utf8ToString(inputDir);
+            if (string.IsNullOrEmpty(inDir)) { _lastError = "input_dir is required"; return -1; }
+
+            IReadOnlyList<ProsperoPkgMergeResult> results =
+                ProsperoPkgMerger.MergeDirectory(inDir, Utf8ToString(outputDir), computeDigest != 0);
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (i > 0) sb.Append('\n');
+                sb.Append(results[i].OutputPath);
+            }
+            return WriteUtf8(sb.ToString(), outBuffer, capacity);
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- Packaging and launch readiness -----------------------------------------------------
+
+    /// <summary>
+    /// Builds a package from a homebrew folder. <paramref name="contentId"/>, <paramref name="title"/>,
+    /// and <paramref name="version"/> may be NULL/empty to take defaults; <paramref name="passcode"/>
+    /// may be NULL/empty for the all-zero default; <paramref name="moduleName"/> may be NULL/empty
+    /// for "eboot.bin". When non-NULL, <paramref name="outReadiness"/> receives the launch-readiness
+    /// summary. The output path is written into <paramref name="outPath"/> as UTF-8.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_package_homebrew")]
+    public static int PackageHomebrew(
+        byte* homebrewFolder,
+        byte* outputFolder,
+        byte* contentId,
+        byte* passcode,
+        byte* title,
+        byte* version,
+        byte* moduleName,
+        int innerCompression,
+        LppLaunchReadiness* outReadiness,
+        byte* outPath,
+        int outPathCapacity)
+    {
+        try
+        {
+            string? hb = Utf8ToString(homebrewFolder);
+            string? of = Utf8ToString(outputFolder);
+            if (string.IsNullOrEmpty(hb) || string.IsNullOrEmpty(of))
+            { _lastError = "homebrew_folder and output_folder are required"; return -1; }
+
+            var options = new ProsperoHomebrewPackageOptions
+            {
+                HomebrewFolder = hb,
+                OutputFolder = of,
+                ContentId = Utf8ToString(contentId) ?? "",
+                Passcode = Fallback(Utf8ToString(passcode), new string('0', 32)),
+                Title = Utf8ToString(title) ?? "",
+                Version = Utf8ToString(version) ?? "",
+                InnerCompression = ToEnum<ProsperoInnerCompression>(innerCompression),
+            };
+            string? module = Utf8ToString(moduleName);
+            if (!string.IsNullOrEmpty(module)) options.ModuleName = module;
+
+            ProsperoHomebrewPackageResult result = ProsperoHomebrewPackager.Package(options);
+            if (outReadiness is not null) FillLaunchReadiness(result.LaunchReadiness, outReadiness);
+            int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
+            return written < 0 ? written : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Inspects an application root and fills <paramref name="outReadiness"/> with its
+    /// launch-readiness summary (eboot/param presence, module count, issue count, readiness flag).
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_inspect_launch_readiness")]
+    public static int InspectLaunchReadiness(byte* appRoot, LppLaunchReadiness* outReadiness)
+    {
+        try
+        {
+            if (outReadiness is null) { _lastError = "output pointer is null"; return -1; }
+            string? root = Utf8ToString(appRoot);
+            if (string.IsNullOrEmpty(root)) { _lastError = "app_root is required"; return -1; }
+
+            FillLaunchReadiness(ProsperoLaunchReadiness.InspectAppRoot(root), outReadiness);
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- Inner image / PFS ------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds a plaintext inner image layout from a source folder. The file and directory counts
+    /// are written to <paramref name="fileCount"/> and <paramref name="directoryCount"/> when
+    /// non-NULL; the output path is written into <paramref name="outPath"/> as UTF-8.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_build_pfs_layout")]
+    public static int BuildPfsLayout(byte* sourceFolder, byte* outputPath, int* fileCount, int* directoryCount, byte* outPath, int outPathCapacity)
+    {
+        try
+        {
+            string? src = Utf8ToString(sourceFolder);
+            string? outp = Utf8ToString(outputPath);
+            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(outp))
+            { _lastError = "source_folder and output_path are required"; return -1; }
+
+            ProsperoPfsLayoutResult result = ProsperoPfsLayout.BuildFromFolder(src, outp);
+            if (fileCount is not null) *fileCount = result.FileCount;
+            if (directoryCount is not null) *directoryCount = result.DirectoryCount;
+            int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
+            return written < 0 ? written : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Reports whether an inner image is encrypted.</summary>
+    /// <returns>1 when encrypted, 0 when plaintext, -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_pfs_image_is_encrypted")]
+    public static int PfsImageIsEncrypted(byte* path)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+            return ProsperoPfsImage.IsEncrypted(p) ? 1 : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Decrypts an inner image in place. The image key derives from <paramref name="contentId"/> and
+    /// <paramref name="passcode"/> (NULL/empty passcode uses the all-zero default).
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_decrypt_pfs_image")]
+    public static int DecryptPfsImage(byte* pfsImagePath, byte* contentId, byte* passcode)
+    {
+        try
+        {
+            string? p = Utf8ToString(pfsImagePath);
+            if (string.IsNullOrEmpty(p)) { _lastError = "pfs_image_path is required"; return -1; }
+
+            byte[] ekpfs = ProsperoPfsKeys.DeriveEkpfs(Utf8ToString(contentId) ?? "", Fallback(Utf8ToString(passcode), new string('0', 32)));
+            ProsperoPfsImage.DecryptInPlace(p, new ProsperoPfsImageOptions { Ekpfs = ekpfs });
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- ELF --------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Reads an ELF header into <paramref name="outInfo"/>: class, data, OS ABI, ABI version, type,
+    /// machine, entry, flags, program-header count, and executable/dynamic/module flags.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_read_elf_header")]
+    public static int ReadElfHeader(byte* path, LppElfInfo* outInfo)
+    {
+        try
+        {
+            if (outInfo is null) { _lastError = "output pointer is null"; return -1; }
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+
+            ProsperoElfHeader h = ProsperoElfHeader.ReadFile(p);
+            LppElfInfo o = default;
+            o.StructSize = sizeof(LppElfInfo);
+            o.Class = (int)h.Class;
+            o.Data = (int)h.Data;
+            o.OsAbi = h.OsAbi;
+            o.AbiVersion = h.AbiVersion;
+            o.Type = (int)h.Type;
+            o.Machine = h.Machine;
+            o.Entry = h.Entry;
+            o.Flags = h.Flags;
+            o.ProgramHeaderCount = h.ProgramHeaderCount;
+            o.IsExecutable = h.IsExecutable ? 1 : 0;
+            o.IsDynamic = h.IsDynamic ? 1 : 0;
+            o.IsModuleType = h.IsModuleType ? 1 : 0;
+            o.IsModuleReady = h.IsModuleReady ? 1 : 0;
+            *outInfo = o;
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Normalizes an ELF for use as a module and writes the result to <paramref name="outPath"/>.
+    /// When non-NULL, <paramref name="changed"/> receives 1 if any header field changed, otherwise 0.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_normalize_elf_module")]
+    public static int NormalizeElfModule(byte* inPath, byte* outPath, int* changed)
+    {
+        try
+        {
+            string? ip = Utf8ToString(inPath);
+            string? op = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(ip) || string.IsNullOrEmpty(op))
+            { _lastError = "in_path and out_path are required"; return -1; }
+
+            byte[] elf = File.ReadAllBytes(ip);
+            ElfNormalizeResult r = ProsperoElfHeader.NormalizeForModule(elf);
+            File.WriteAllBytes(op, elf);
+            if (changed is not null) *changed = r.Changed ? 1 : 0;
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- Content protection files -----------------------------------------------------------
+
+    /// <summary>
+    /// Validates a content protection file. When non-NULL, <paramref name="errorBuffer"/> receives a
+    /// description when the file is invalid.
+    /// </summary>
+    /// <returns>1 when valid, 0 when invalid, -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_ucp_validate_file")]
+    public static int UcpValidateFile(byte* path, byte* errorBuffer, int errorCapacity)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+
+            bool ok = ProsperoUcp.Validate(File.ReadAllBytes(p), out string? error);
+            if (errorBuffer is not null && errorCapacity > 0)
+                WriteUtf8(error ?? "", errorBuffer, errorCapacity);
+            return ok ? 1 : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Verifies the digest of a content protection file.</summary>
+    /// <returns>1 when the digest matches, 0 when it does not, -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_ucp_verify_digest_file")]
+    public static int UcpVerifyDigestFile(byte* path)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+            return ProsperoUcp.VerifyDigest(File.ReadAllBytes(p)) ? 1 : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Builds a content protection file from a directory and writes it to <paramref name="outputPath"/>.</summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_ucp_build_from_directory")]
+    public static long UcpBuildFromDirectory(byte* directory, byte* outputPath)
+    {
+        try
+        {
+            string? dir = Utf8ToString(directory);
+            string? op = Utf8ToString(outputPath);
+            if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(op))
+            { _lastError = "directory and output_path are required"; return -1; }
+
+            byte[] ucp = ProsperoUcp.BuildFromDirectory(dir);
+            File.WriteAllBytes(op, ucp);
+            return ucp.Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Reads a content protection file, repairs its digest, and writes it to <paramref name="outPath"/>.</summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_ucp_repair_digest_file")]
+    public static long UcpRepairDigestFile(byte* inPath, byte* outPath)
+    {
+        try
+        {
+            string? ip = Utf8ToString(inPath);
+            string? op = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(ip) || string.IsNullOrEmpty(op))
+            { _lastError = "in_path and out_path are required"; return -1; }
+
+            byte[] repaired = ProsperoUcp.WithRepairedDigest(File.ReadAllBytes(ip));
+            File.WriteAllBytes(op, repaired);
+            return repaired.Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- License and keys -------------------------------------------------------------------
+
+    /// <summary>
+    /// Creates a structural license record for <paramref name="contentId"/> and writes it to
+    /// <paramref name="outPath"/>. Pass 0 for <paramref name="expiry"/> to create a non-expiring record.
+    /// </summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_rif_create")]
+    public static long RifCreate(byte* contentId, long expiry, byte* outPath)
+    {
+        try
+        {
+            string? cid = Utf8ToString(contentId);
+            string? op = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(cid) || string.IsNullOrEmpty(op))
+            { _lastError = "content_id and out_path are required"; return -1; }
+
+            ProsperoRif rif = ProsperoRif.Create(cid, null, expiry == 0 ? ProsperoRif.NeverExpires : expiry);
+            byte[] bytes = rif.ToBytes();
+            File.WriteAllBytes(op, bytes);
+            return bytes.Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Derives the 32-byte image key from <paramref name="contentId"/> and <paramref name="passcode"/>
+    /// (NULL/empty passcode uses the all-zero default) and writes it to <paramref name="out32"/>.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_derive_image_key")]
+    public static int DeriveImageKey(byte* contentId, byte* passcode, byte* out32)
+    {
+        try
+        {
+            if (out32 is null) { _lastError = "output pointer is null"; return -1; }
+            string? cid = Utf8ToString(contentId);
+            if (string.IsNullOrEmpty(cid)) { _lastError = "content_id is required"; return -1; }
+
+            byte[] ekpfs = ProsperoPfsKeys.DeriveEkpfs(cid, Fallback(Utf8ToString(passcode), new string('0', 32)));
+            new ReadOnlySpan<byte>(ekpfs, 0, Math.Min(32, ekpfs.Length)).CopyTo(new Span<byte>(out32, 32));
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Validates a 32-hex-character entitlement key.</summary>
+    /// <returns>1 when valid, 0 when invalid, -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_entitlement_key_validate")]
+    public static int EntitlementKeyValidate(byte* hex)
+    {
+        try
+        {
+            string? h = Utf8ToString(hex);
+            if (string.IsNullOrEmpty(h)) { _lastError = "hex is required"; return -1; }
+
+            ProsperoEntitlementKey key = ProsperoEntitlementKey.ParseHex(h);
+            return key.Validate(out _) ? 1 : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- Disc backup ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Opens a disc backup from its manifest and fills <paramref name="outInfo"/> with the content
+    /// info drawn from the reassembled package.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_disc_backup_content_info")]
+    public static int DiscBackupContentInfo(byte* manifestPath, LppNpDrmContentInfo* outInfo)
+    {
+        try
+        {
+            if (outInfo is null) { _lastError = "output pointer is null"; return -1; }
+            string? m = Utf8ToString(manifestPath);
+            if (string.IsNullOrEmpty(m)) { _lastError = "manifest_path is required"; return -1; }
+
+            ProsperoDiscBackup backup = ProsperoDiscBackup.Open(m);
+            ProsperoNpDrmContentInfo ci = backup.ReadContentInfo();
+            LppNpDrmContentInfo o = default;
+            o.StructSize = sizeof(LppNpDrmContentInfo);
+            o.DrmType = ci.DrmType;
+            o.ContentType = ci.ContentType;
+            o.ContentFlags = ci.ContentFlags;
+            o.PatchKind = (int)ci.PatchKind;
+            o.IsPatch = ci.IsPatch ? 1 : 0;
+            o.IsNested = ci.IsNestedImage ? 1 : 0;
+            o.IsFinalized = ci.IsFinalized ? 1 : 0;
+            o.ContainerOffset = ci.ContainerOffset;
+            *outInfo = o;
+            WriteUtf8Fixed(ci.ContentId, outInfo->ContentId, 64);
+            WriteUtf8Fixed(ci.TitleId, outInfo->TitleId, 16);
+            return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Verifies the chunk CRCs of a disc backup. When non-NULL, <paramref name="mismatchChunk"/>
+    /// receives the index of the first mismatch (or -1 when all match).
+    /// </summary>
+    /// <returns>1 when all chunks match, 0 on mismatch, -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_disc_backup_verify_chunk_crcs")]
+    public static int DiscBackupVerifyChunkCrcs(byte* manifestPath, int* mismatchChunk)
+    {
+        try
+        {
+            string? m = Utf8ToString(manifestPath);
+            if (string.IsNullOrEmpty(m)) { _lastError = "manifest_path is required"; return -1; }
+
+            ProsperoDiscBackup backup = ProsperoDiscBackup.Open(m);
+            bool ok = backup.VerifyChunkCrcs(out int mismatch);
+            if (mismatchChunk is not null) *mismatchChunk = mismatch;
+            return ok ? 1 : 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    // ---- Auxiliary generators ---------------------------------------------------------------
+
+    /// <summary>Encodes a PNG file to a BC7 DDS texture and writes it to <paramref name="ddsPath"/>.</summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_encode_png_to_dds")]
+    public static long EncodePngToDds(byte* pngPath, byte* ddsPath)
+    {
+        try
+        {
+            string? ip = Utf8ToString(pngPath);
+            string? op = Utf8ToString(ddsPath);
+            if (string.IsNullOrEmpty(ip) || string.IsNullOrEmpty(op))
+            { _lastError = "png_path and dds_path are required"; return -1; }
+
+            byte[] dds = ProsperoDdsEncoder.EncodePngToDds(File.ReadAllBytes(ip));
+            File.WriteAllBytes(op, dds);
+            return dds.Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Builds a chunk descriptor file for <paramref name="contentId"/> and writes it to <paramref name="outPath"/>.</summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_build_playgo_chunk_dat")]
+    public static long BuildPlaygoChunkDat(byte* contentId, byte* outPath)
+    {
+        try
+        {
+            string? cid = Utf8ToString(contentId);
+            string? op = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(cid) || string.IsNullOrEmpty(op))
+            { _lastError = "content_id and out_path are required"; return -1; }
+
+            byte[] data = ProsperoPlayGo.BuildChunkDat(cid);
+            File.WriteAllBytes(op, data);
+            return data.Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Creates a default param.json for the given ids and writes it to <paramref name="outPath"/>.</summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_create_param_json")]
+    public static long CreateParamJson(byte* contentId, byte* titleId, byte* titleName, int drmType, byte* outPath)
+    {
+        try
+        {
+            string? cid = Utf8ToString(contentId);
+            string? tid = Utf8ToString(titleId);
+            string? op = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(cid) || string.IsNullOrEmpty(tid) || string.IsNullOrEmpty(op))
+            { _lastError = "content_id, title_id and out_path are required"; return -1; }
+
+            ProsperoParam param = ProsperoParam.CreateDefault(cid, tid, Utf8ToString(titleName) ?? "", ToEnum<ProsperoDrmType>(drmType));
+            param.Save(op);
+            return new FileInfo(op).Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>Builds a GP5 project referencing <paramref name="sourceFolder"/> and writes it to
+    /// <paramref name="outPath"/>. <paramref name="volumeType"/> selects the volume kind
+    /// (0 = application, 1 = patch, 2 = additional content, 3 = additional content without data);
+    /// <paramref name="passcode"/> may be empty for the all-zero default.</summary>
+    /// <returns>The number of bytes written, or -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_create_gp5")]
+    public static long CreateGp5(byte* sourceFolder, byte* outPath, int volumeType, byte* passcode)
+    {
+        try
+        {
+            string? src = Utf8ToString(sourceFolder);
+            string? op = Utf8ToString(outPath);
+            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(op))
+            { _lastError = "source_folder and out_path are required"; return -1; }
+
+            string pass = Utf8ToString(passcode) is { Length: > 0 } p ? p : new string('0', 32);
+            Gp5Project project = Gp5Creator.FromFolder(src, ToEnum<Gp5VolumeType>(volumeType), pass);
+            Gp5Project.WriteTo(project, op);
+            return new FileInfo(op).Length;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    private static string JoinRelativePaths(IReadOnlyList<ProsperoExtractedEntry> entries)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (i > 0) sb.Append('\n');
+            sb.Append(entries[i].RelativePath);
+        }
+        return sb.ToString();
+    }
+
+    private static void FillLaunchReadiness(ProsperoLaunchReadinessReport report, LppLaunchReadiness* outReadiness)
+    {
+        LppLaunchReadiness o = default;
+        o.StructSize = sizeof(LppLaunchReadiness);
+        o.HasEboot = report.HasEboot ? 1 : 0;
+        o.HasParamJson = report.HasParamJson ? 1 : 0;
+        o.HasParamSfo = report.HasParamSfo ? 1 : 0;
+        o.RequiresDebugConsole = report.RequiresDebugConsole ? 1 : 0;
+        o.IsLaunchReady = report.IsLaunchReady ? 1 : 0;
+        o.ModuleCount = report.Modules.Count;
+        o.IssueCount = report.Issues.Count;
+        *outReadiness = o;
     }
 
     private static int MakeFselfCore(byte* elf, int elfLength, FselfOptions? options, byte* outBuffer, int capacity)

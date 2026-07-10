@@ -149,9 +149,8 @@ public static class ProsperoPfsLayout
     /// <summary>
     /// Proves a freshly built plaintext layout is self-consistent: builds the image from
     /// <paramref name="sourceFolder"/>, reads it back with <see cref="ProsperoPfsReader"/> and verifies
-    /// every source file is present with byte-identical content (and the superblock version
-    /// matches the requested profile). This is the self-check that replaces on-hardware
-    /// testing for the layout step.
+    /// every source file is present with the same content (and the superblock version
+    /// matches the requested profile). This is the layout self-check.
     /// </summary>
     public static bool VerifyRoundTrip(string sourceFolder, ProsperoPfsLayoutOptions? options = null)
     {
@@ -168,7 +167,7 @@ public static class ProsperoPfsLayout
             if (reader.Header.Version != result.Version)
                 return false;
 
-            // Every non-excluded source file must round-trip byte-for-byte.
+            // Every non-excluded source file must round-trip exactly.
             var expected = EnumerateSourceFiles(Path.GetFullPath(sourceFolder), options);
             foreach (var (relativePath, fullPath) in expected)
             {

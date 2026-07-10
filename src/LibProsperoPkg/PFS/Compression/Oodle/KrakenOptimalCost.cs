@@ -2,9 +2,9 @@
 // Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
-// Kraken (newLZ) OPTIMAL parse cost model — the deterministic, byte-exact integer core of the
-// reference level-7 "Optimal3" encoder. No bytes are copied from external source; only the
-// integer formulas and the published fixed-point log2 mantissa table are encoded here. GPLv3.
+// Kraken (newLZ) OPTIMAL parse cost model — the deterministic integer core of the
+// level-7 "Optimal3" encoder. No bytes are copied from external source; only the
+// integer formulas and the fixed-point log2 mantissa table are encoded here. GPLv3.
 //
 // This file contains ONLY the cost quantizer (the guess-proof, float-free foundation):
 //   * Log2Fix — fixed-point log2 of the
@@ -27,8 +27,8 @@ using System.Numerics;
 namespace LibProsperoPkg.PFS.Compression.Oodle;
 
 /// <summary>
-/// Byte-exact integer implementation of the reference newLZ optimal-parse cost model (the
-/// fixed-point log2 quantizer behind histogram-to-code-cost conversion). Deterministic; no floating
+/// Integer implementation of the newLZ optimal-parse cost model: the fixed-point log2 quantizer
+/// behind histogram-to-code-cost conversion. Deterministic; no floating
 /// point is used on any path that influences a cost. All costs are expressed in
 /// <c>bits * 32</c> (the 1/32-bit fixed-point the parser compares).
 /// </summary>
@@ -117,8 +117,8 @@ internal static class KrakenOptimalCost
 
     // -----------------------------------------------------------------------------------------------
     // COST-HELPER LAYER — the five deterministic cost functions the forward trellis DP calls per
-    // candidate, plus the per-pass table builder. The functions are byte-exact and cross-validated
-    // against the shipping offset packer (KrakenBitWriter.WriteDistance).
+    // candidate, plus the per-pass table builder. The offset cost matches the packer used by
+    // KrakenBitWriter.WriteDistance.
     //   * BuildFromPassinfo — builds per-pass code costs
     //   * CostLiterals      — literal-run cost
     //   * CostOffset        — offset cost, mode-0 / standard newLZ window
@@ -179,34 +179,6 @@ internal static class KrakenOptimalCost
         HistoToCodeCost(passinfo.Slice(0x300, Alphabet), cc.Length, 0xc, 0xff);
         HistoToCodeCost(litMode == 1 ? passinfo.Slice(0, Alphabet) : passinfo.Slice(0x100, Alphabet),
                         cc.Lit, 0, 0xff);
-        return cc;
-    }
-
-    /// <summary>
-    /// Diagnostic: reconstruct a <see cref="CodeCosts"/> from a raw 0x1808-byte codecost blob. Reads
-    /// the int32-LE serialized fields directly so the DP can be driven with exact reference codecosts, bypassing
-    /// <see cref="BuildFromPassinfo"/>. Layout: +0x04 lit-mask, +0x08 Lit[256], +0x408 Packet[256],
-    /// +0x808 offset-alt-modulo, +0x80c OffsetBucket[256], +0xc0c OffsetAlt[256], +0x100c Length[256].
-    /// </summary>
-    internal static CodeCosts FromRawBlob(ReadOnlySpan<byte> blob)
-    {
-        if (blob.Length < 0x1808)
-            throw new ArgumentException("codecost blob must be >= 0x1808 bytes.");
-        int mask = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0x04, 4));
-        var cc = new CodeCosts
-        {
-            LitMode = mask == 0 ? 1 : 0,
-            LitSubMask = mask == 0 ? 0 : 0xff,
-            OffsetAltModulo = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0x808, 4)),
-        };
-        for (int i = 0; i < Alphabet; i++)
-        {
-            cc.Lit[i] = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0x008 + i * 4, 4));
-            cc.Packet[i] = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0x408 + i * 4, 4));
-            cc.OffsetBucket[i] = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0x80c + i * 4, 4));
-            cc.OffsetAlt[i] = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0xc0c + i * 4, 4));
-            cc.Length[i] = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(blob.Slice(0x100c + i * 4, 4));
-        }
         return cc;
     }
 

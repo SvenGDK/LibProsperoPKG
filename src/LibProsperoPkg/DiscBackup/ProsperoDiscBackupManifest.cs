@@ -3,7 +3,6 @@
 //
 // Parser for the disc-backup reassembly manifest (app.json): the split-file list plus the
 // SHA-256 digests used to verify the reassembled package and the PlayGo chunk-CRC file.
-// See Reversed/disc-backup-format.md for the decoded structure.
 
 using System;
 using System.Collections.Generic;

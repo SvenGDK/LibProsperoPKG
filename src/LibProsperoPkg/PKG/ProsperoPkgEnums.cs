@@ -76,6 +76,15 @@ public static class ProsperoPkgLayout
     /// <summary>FIH header offset of the embedded CNT container offset (little-endian u64).</summary>
     public const int FihEmbeddedCntOffsetField = 0x58;
 
+    /// <summary>
+    /// FIH header offset of the inner mount's data-region block count (little-endian u64) — the metaBase
+    /// block index = MetaBaseLogical / <see cref="FihHeaderRegionSize"/>. The console's DbgInstall transfer
+    /// reads this to size the inner mount's data region during pre-allocation; a zero value trips the
+    /// transfer with ret 0x80b21171 ("transfer failed"). This value must be nonzero for package
+    /// types 0x14001 and 0x14004.
+    /// </summary>
+    public const int FihDataRegionBlockCountField = 0x50;
+
     // ---- Outer-PFS accounting fields (little-endian; derived from the FIH writer output
     // and cross-checked across debug packages). These describe
     // the inner pfs_image.dat / metadata block split of the shared outer-PFS image, not the
@@ -96,6 +105,33 @@ public static class ProsperoPkgLayout
     /// (little-endian u64) - equals <see cref="FihInnerImageBlockCountField"/> * <see cref="FihHeaderRegionSize"/>.
     /// </summary>
     public const int FihInnerImageSizeField = 0xA0;
+
+    /// <summary>
+    /// FIH header offset of the uncompressed inner-image logical size in bytes (little-endian u64).
+    /// This is the plaintext size of the inner PFS image whose content digest is stored at 0xB0, and
+    /// the size the mount pre-allocation reads; it must equal the 0xB0 digest preimage length.
+    /// </summary>
+    public const int FihInnerImageLogicalSizeField = 0xA8;
+
+    /// <summary>FIH header offset of the content-version echo (little-endian u32) — high 32 bits of the
+    /// content version u64 (major BCD in the top byte).</summary>
+    public const int FihContentVersionField = 0x9C;
+
+    /// <summary>FIH header offset of the outer-PFS regular file count (little-endian u32).</summary>
+    public const int FihOuterFileCountField = 0xF0;
+
+    /// <summary>FIH header offset of the outer-PFS flat-path-table block accounting value (little-endian u32).</summary>
+    public const int FihFlatPathTableBlockCountField = 0xF8;
+
+    /// <summary>
+    /// Outer-PFS regular file count for the fixed data-first template. For the nwonly outer template
+    /// (single pfs_image.dat data file; naps_pkg_layout.dat is a system file, not counted) this is 1.
+    /// </summary>
+    public const uint FihOuterFileCount = 1;
+
+    /// <summary>Outer-PFS flat-path-table block accounting value for the fixed data-first template.
+    /// For the nwonly outer template this is 2.</summary>
+    public const uint FihFlatPathTableBlockCount = 2;
 }
 
 /// <summary>

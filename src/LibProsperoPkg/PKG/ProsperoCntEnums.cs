@@ -30,6 +30,8 @@ public enum ProsperoCntFlags : uint
 [Flags]
 public enum ProsperoCntContentFlags : uint
 {
+    // Bit set on base application content whose info is resolved through the content-info path.
+    GD_BASE = 0x00020000,
     FIRST_PATCH = 0x00100000,
     PATCHGO = 0x00200000,
     REMASTER = 0x00400000,

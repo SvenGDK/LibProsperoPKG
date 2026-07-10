@@ -40,7 +40,7 @@ cd LibProsperoPKG/src/LibProsperoPkg
 dotnet build -c Release
 ```
 
-The output is `bin/Release/net10.0/LibProsperoPkg.dll`.
+The Release build is written under `bin/Release/net10.0/`.
 
 ## Using the library from another project
 
@@ -113,7 +113,36 @@ var options = new ProsperoBuildOptions
 };
 ```
 
-## Reading and extracting a package
+## DRM/license-free debug package
+
+Set `LicenseFree` to build a single package that is DRM-free, license-free, fake-signed, and
+runnable on a debug-enabled console. The flag fake-signs raw ELF modules (the same conversion as
+`FakeSignSelfModules`) and constructs a debug grant whose mount key is recomputed from the content
+id and passcode, so no rif or license file is written. The output stays a debug finalized image.
+`param.json` `applicationDrmType` is descriptive metadata read by the installer, not a boot gate; a
+generated `param.json` already carries the derived value and is not rewritten.
+
+```csharp
+var options = new ProsperoBuildOptions
+{
+    Mode         = ProsperoPackageMode.Application,
+    OutputFormat = ProsperoOutputFormat.DebugImage,
+    SourceFolder = "/path/to/prepared/app",
+    OutputFolder = "/path/to/output",
+    ContentId    = "UP9000-PPSA00000_00-PROSPERO00000000",
+    TitleId      = "PPSA00000",
+    Title        = "My PS5 Application",
+    Version      = "01.00",
+    LicenseFree  = true,
+};
+
+ProsperoBuildResult result = ProsperoPackageBuilder.Build(options);
+// result.LicenseFree == true
+// result.DebugLicense holds the content id + passcode grant (RequiresRif == false)
+```
+
+The source tree is unchanged after the build: the fake-sign step restores the original bytes
+when the build finishes or throws.
 
 Read an existing package's header and entries:
 
@@ -160,6 +189,30 @@ ProsperoDiscBackup backup = ProsperoDiscBackup.Open("/path/to/backup/dir");
 Console.WriteLine(backup.VerifyPackageDigest());
 ProsperoPkg pkg = backup.ReadPackage();
 ```
+
+## Converting a decrypted backup to a debug fPKG
+
+A decrypted backup carries the app tree plus a `decrypted/` subfolder that mirrors every executable
+as raw ELF. `ProsperoBackupConverter` substitutes each signed executable with its decrypted
+counterpart, fake-signs the modules, and builds a debug image that mounts from the content id and
+passcode alone. No executable byte-patching and no `param.json` edit are involved.
+
+```csharp
+var options = new ProsperoBackupConversionOptions
+{
+    BackupFolder = "/path/to/backup/PPSA00000-app0",
+    OutputFolder = "/path/to/output",
+    // ContentId and Version fall back to the backup's param.json when omitted.
+};
+
+ProsperoBackupConversionResult result = ProsperoBackupConverter.Convert(options);
+Console.WriteLine(result.OutputPath);
+Console.WriteLine($"substituted {result.SubstitutedModules.Count} modules");
+// result.DebugLicense.RequiresRif == false
+```
+
+The backup is never modified; the converter works from a staging copy. Every module in the output
+is a fake-self, the image is debug (not retail), and extraction round-trips every file.
 
 ## Notes on content identifiers
 

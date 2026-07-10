@@ -31,7 +31,7 @@
 // is left plaintext. See ProsperoOuterPfsImage.
 //
 // The FLT path-hash is a custom 3-lane reduced-Keccak permutation (round constant 0x8000000080008081)
-// with two fixed 64-bit seeds, byte-exact for the file names ("pfs_image.dat", "naps_pkg_layout.dat").
+// with two fixed 64-bit seeds for the file names ("pfs_image.dat", "naps_pkg_layout.dat").
 #nullable enable
 using System;
 using System.Buffers.Binary;
@@ -69,8 +69,8 @@ public sealed class ProsperoOuterFile
 }
 
 /// <summary>
-/// Build parameters for the outer-PFS structure generator. The timestamp/seed defaults reproduce
-/// the default image byte-exact; a fresh build supplies the current time and a fresh seed.
+/// Build parameters for the outer-PFS structure generator. The timestamp/seed defaults define the
+/// default image parameters; a fresh build supplies the current time and a fresh seed.
 /// </summary>
 public sealed class ProsperoOuterPfsBuildParameters
 {
@@ -99,8 +99,51 @@ public sealed class ProsperoOuterPfsBuildResult
     /// <summary>Index of the plaintext metadata (superblock) block.</summary>
     public required int SuperblockIndex { get; init; }
 
+    /// <summary>First image block of each outer file, parallel to the input file list.</summary>
+    public int[] FileFirstBlock { get; init; } = [];
+
+    /// <summary>Image block count of each outer file, parallel to the input file list.</summary>
+    public int[] FileBlockCount { get; init; } = [];
+
+    /// <summary>Block index of the inode (dinode) table.</summary>
+    public int InodeTableIndex { get; init; }
+
+    /// <summary>Block index of the super-root dirents.</summary>
+    public int SuperRootDirentIndex { get; init; }
+
+    /// <summary>Block index of the inode_flat_path_table.</summary>
+    public int FltIndex { get; init; }
+
+    /// <summary>Block index of the uroot dirents.</summary>
+    public int UrootDirentIndex { get; init; }
+
     /// <summary>Total block count of the image.</summary>
     public int BlockCount => BlockKinds.Length;
+}
+
+/// <summary>
+/// The finalized outer-PFS image for a package: the encrypted image plus the metadata the container
+/// finalizer consumes (per-block digest table, superblock ICV, and image-tree snapshot).
+/// </summary>
+public sealed class ProsperoOuterPackageImage
+{
+    /// <summary>The encrypted outer-PFS image (the plaintext superblock block is left in the clear).</summary>
+    public required byte[] Ciphertext { get; init; }
+
+    /// <summary>Total image size in bytes.</summary>
+    public required long PfsSize { get; init; }
+
+    /// <summary>One 32-byte per-block digest for every image block (the imagedigs table).</summary>
+    public required byte[] ImageDigests { get; init; }
+
+    /// <summary>The 32-byte superblock integrity value.</summary>
+    public required byte[] SuperblockIcv { get; init; }
+
+    /// <summary>Index of the plaintext metadata (superblock) block.</summary>
+    public required int SuperblockIndex { get; init; }
+
+    /// <summary>Self-consistent image-tree snapshot for the pfsimage.xml introspection sections.</summary>
+    public required ProsperoPfsImageTreeInfo Tree { get; init; }
 }
 
 /// <summary>
@@ -170,8 +213,29 @@ public static class ProsperoOuterPfsBuilder
         int inodeTableIndex = dataBlockTotal + 1;    // block D+1
         int superRootDirentIndex = dataBlockTotal + 2; // block D+2
         int fltIndex = dataBlockTotal + 3;           // block D+3
-        int urootDirentIndex = dataBlockTotal + 4;   // block D+4
-        int totalBlocks = dataBlockTotal + 5;
+
+        // Files whose block count exceeds the 12 direct-block slots need indirect blocks (each holds up to
+        // BlockSize/36 sig+block entries). The indirect block(s) are laid out after the FLT, before the uroot
+        // dirents (the outer layout places pfs_image.dat's indirect block at D+4).
+        const int DirectBlockSlots = 12;
+        int indirectEntriesPerBlock = BlockSize / 36;
+        var fileIndirectBlock = new int[files.Count];
+        for (int i = 0; i < files.Count; i++) fileIndirectBlock[i] = -1;
+        int indirectRegionStart = fltIndex + 1;
+        int indirectBlocksTotal = 0;
+        for (int i = 0; i < files.Count; i++)
+        {
+            if (fileBlockCount[i] > DirectBlockSlots)
+            {
+                int extra = fileBlockCount[i] - DirectBlockSlots;
+                int needed = (extra + indirectEntriesPerBlock - 1) / indirectEntriesPerBlock;
+                fileIndirectBlock[i] = indirectRegionStart + indirectBlocksTotal;
+                indirectBlocksTotal += needed;
+            }
+        }
+
+        int urootDirentIndex = indirectRegionStart + indirectBlocksTotal; // after the indirect region
+        int totalBlocks = urootDirentIndex + 1;
 
         var image = new byte[(long)totalBlocks * BlockSize];
 
@@ -190,7 +254,8 @@ public static class ProsperoOuterPfsBuilder
         // ---- 4. Build the inode table (block D+1) with per-block SHA3 hashes. ----
         BuildInodeTable(
             image, inodeTableIndex, parameters, files,
-            fileFirstBlock, fileBlockCount,
+            fileFirstBlock, fileBlockCount, fileIndirectBlock,
+            indirectEntriesPerBlock,
             superRootDirentIndex, fltIndex, urootDirentIndex);
 
         // ---- 5. Build the superblock (block D): super-root inode hash (of the inode table) + seed + ICV. ----
@@ -213,6 +278,14 @@ public static class ProsperoOuterPfsBuilder
         kinds[inodeTableIndex] = ProsperoOuterBlockKind.Signed;
         kinds[superRootDirentIndex] = ProsperoOuterBlockKind.Signed;
         kinds[fltIndex] = ProsperoOuterBlockKind.Signed;
+        for (int i = 0; i < files.Count; i++)
+        {
+            if (fileIndirectBlock[i] < 0) continue;
+            int extra = fileBlockCount[i] - DirectBlockSlots;
+            int needed = (extra + indirectEntriesPerBlock - 1) / indirectEntriesPerBlock;
+            for (int b = 0; b < needed; b++)
+                kinds[fileIndirectBlock[i] + b] = ProsperoOuterBlockKind.Signed;
+        }
         kinds[urootDirentIndex] = ProsperoOuterBlockKind.Signed;
 
         return new ProsperoOuterPfsBuildResult
@@ -220,6 +293,12 @@ public static class ProsperoOuterPfsBuilder
             Plaintext = image,
             BlockKinds = kinds,
             SuperblockIndex = superblockIndex,
+            FileFirstBlock = fileFirstBlock,
+            FileBlockCount = fileBlockCount,
+            InodeTableIndex = inodeTableIndex,
+            SuperRootDirentIndex = superRootDirentIndex,
+            FltIndex = fltIndex,
+            UrootDirentIndex = urootDirentIndex,
         };
     }
 
@@ -253,6 +332,144 @@ public static class ProsperoOuterPfsBuilder
         var (tweak, data) = ProsperoPfsKeys.DeriveImageEncryptionKeys(ekpfs, parameters.Seed);
         Encrypt(build, tweak, data);
         return build.Plaintext;
+    }
+
+    /// <summary>
+    /// Builds the finalized outer-PFS image for a package: assembles the data-first plaintext image,
+    /// captures the per-block digest table and superblock ICV from the plaintext, encrypts it with keys
+    /// derived from <paramref name="ekpfs"/> and the build seed, and produces the image-tree snapshot.
+    /// </summary>
+    /// <param name="files">The ordered outer files (nested image first, then the layout descriptor).</param>
+    /// <param name="parameters">Build parameters; the 16-byte seed drives key derivation.</param>
+    /// <param name="ekpfs">The 32-byte package image key.</param>
+    public static ProsperoOuterPackageImage BuildForPackage(
+        IReadOnlyList<ProsperoOuterFile> files, ProsperoOuterPfsBuildParameters parameters, byte[] ekpfs)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        ArgumentNullException.ThrowIfNull(ekpfs);
+        byte[] seed = parameters.Seed ?? new byte[16];
+        if (seed.Length != 16)
+            throw new ArgumentException("A 16-byte build seed is required.", nameof(parameters));
+
+        ProsperoOuterPfsBuildResult build = BuildPlaintext(files, parameters);
+        int total = build.BlockCount;
+
+        // Per-block digest table: one SHA3-256 over each plaintext block (including the superblock),
+        // captured before encryption. Data blocks and metadata blocks alike are covered.
+        var imageDigests = new byte[total * 32];
+        for (int i = 0; i < total; i++)
+        {
+            byte[] h = ProsperoOuterPfsSignature.ComputeBlockHash(
+                build.Plaintext.AsSpan(i * BlockSize, BlockSize));
+            h.CopyTo(imageDigests, i * 32);
+        }
+
+        byte[] superblockIcv = ProsperoOuterPfsSignature.ComputeSuperblockIcv(
+            build.Plaintext.AsSpan(build.SuperblockIndex * BlockSize, BlockSize));
+
+        ProsperoPfsImageTreeInfo tree = BuildTreeInfo(build, files, seed, superblockIcv);
+
+        var (tweak, data) = ProsperoPfsKeys.DeriveImageEncryptionKeys(ekpfs, seed);
+        Encrypt(build, tweak, data);
+
+        return new ProsperoOuterPackageImage
+        {
+            Ciphertext = build.Plaintext,
+            PfsSize = build.Plaintext.LongLength,
+            ImageDigests = imageDigests,
+            SuperblockIcv = superblockIcv,
+            SuperblockIndex = build.SuperblockIndex,
+            Tree = tree,
+        };
+    }
+
+    // Builds the self-consistent image-tree snapshot (super-root -> flat path table + uroot -> files)
+    // from the fixed data-first inode template, mirroring the inode table this builder wrote.
+    private static ProsperoPfsImageTreeInfo BuildTreeInfo(
+        ProsperoOuterPfsBuildResult build, IReadOnlyList<ProsperoOuterFile> files,
+        byte[] seed, byte[] superblockIcv)
+    {
+        long fltSize = FltDataOffset + (long)files.Count * 16;
+        bool fileCompressed = (FlagsFile & 0x1u) != 0;
+
+        var root = new ProsperoPfsImageNode
+        {
+            Name = "",
+            IsDirectory = true,
+            Internal = false,
+            InodeNumber = 0,
+            StartBlock = build.SuperRootDirentIndex,
+            Blocks = 1,
+            StoredSize = BlockSize,
+            PlainSize = BlockSize,
+            Flags = FlagsInternalMeta,
+            Mode = ModeDir,
+            Nlink = 1,
+        };
+        root.Children.Add(new ProsperoPfsImageNode
+        {
+            Name = FlatPathTableName,
+            IsDirectory = false,
+            Internal = true,
+            InodeNumber = 1,
+            StartBlock = build.FltIndex,
+            Blocks = 1,
+            StoredSize = fltSize,
+            PlainSize = fltSize,
+            Flags = FlagsInternalMeta,
+            Mode = ModeFile,
+            Nlink = 1,
+        });
+
+        var uroot = new ProsperoPfsImageNode
+        {
+            Name = UrootName,
+            IsDirectory = true,
+            InodeNumber = 2,
+            StartBlock = build.UrootDirentIndex,
+            Blocks = 1,
+            StoredSize = BlockSize,
+            PlainSize = BlockSize,
+            Flags = FlagsDir,
+            Mode = ModeDir,
+            Nlink = 3,
+        };
+        for (int i = 0; i < files.Count; i++)
+        {
+            ProsperoOuterFile f = files[i];
+            uroot.Children.Add(new ProsperoPfsImageNode
+            {
+                Name = f.Name,
+                IsDirectory = false,
+                InodeNumber = (uint)(MetadataInodeCount + i),
+                StartBlock = build.FileFirstBlock[i],
+                Blocks = (uint)build.FileBlockCount[i],
+                StoredSize = f.Data.Length,
+                PlainSize = f.SizeCompressed ?? f.Data.Length,
+                Flags = FlagsFile,
+                Mode = ModeFile,
+                Nlink = 1,
+                Compressed = fileCompressed,
+            });
+        }
+        root.Children.Add(uroot);
+
+        return new ProsperoPfsImageTreeInfo
+        {
+            BlockSize = BlockSize,
+            ImageBlocks = build.BlockCount,
+            InodeCount = MetadataInodeCount + files.Count,
+            DinodeBlockCount = 1,
+            RootInodeNumber = 0,
+            DinodeBlock = build.InodeTableIndex,
+            DinodeSize = BlockSize,
+            DinodeFlags = 0,
+            Seed = seed,
+            SuperblockIcv = superblockIcv,
+            Signed = true,
+            Encrypted = true,
+            Root = root,
+        };
     }
 
     // ------------------------------------------------------------------ structural blocks
@@ -312,7 +529,8 @@ public static class ProsperoOuterPfsBuilder
     private static void BuildInodeTable(
         byte[] image, int inodeTableIndex, ProsperoOuterPfsBuildParameters p,
         IReadOnlyList<ProsperoOuterFile> files,
-        int[] fileFirstBlock, int[] fileBlockCount,
+        int[] fileFirstBlock, int[] fileBlockCount, int[] fileIndirectBlock,
+        int indirectEntriesPerBlock,
         int superRootDirentIndex, int fltIndex, int urootDirentIndex)
     {
         var inodes = new List<ProsperoDinodeS32>(MetadataInodeCount + files.Count);
@@ -330,12 +548,14 @@ public static class ProsperoOuterPfsBuilder
         inodes.Add(MakeMetaInode(ModeDir, nlink: 3, FlagsDir, size: BlockSize, p,
             image, new[] { urootDirentIndex }));
 
-        // inode 3..: the outer files in order.
+        // inode 3..: the outer files in order. Every file (signed metadata blob AND the plain-data
+        // pfs_image.dat) stores a per-block SHA3 signature in its direct-block table; files whose block
+        // count exceeds the 12 direct slots spill the remaining {sig, block} entries into an indirect block.
         for (int i = 0; i < files.Count; i++)
         {
             ProsperoOuterFile f = files[i];
-            var blocks = new int[fileBlockCount[i]];
-            for (int j = 0; j < blocks.Length; j++) blocks[j] = fileFirstBlock[i] + j;
+            int firstBlock = fileFirstBlock[i];
+            int blockCount = fileBlockCount[i];
 
             var di = new ProsperoDinodeS32
             {
@@ -344,10 +564,47 @@ public static class ProsperoOuterPfsBuilder
                 Flags = (ProsperoInodeFlags)FlagsFile,
                 Size = f.Data.Length,
                 SizeCompressed = f.SizeCompressed ?? f.Data.Length,
-                Blocks = (uint)blocks.Length,
+                Blocks = (uint)blockCount,
             };
             StampTime(di, p);
-            FillSignedBlocks(di, image, blocks);
+
+            int directCount = Math.Min(blockCount, di.db.Length);
+            for (int j = 0; j < directCount; j++)
+            {
+                int blk = firstBlock + j;
+                di.db[j].sig = ProsperoOuterPfsSignature.ComputeBlockHash(
+                    image.AsSpan(blk * BlockSize, BlockSize));
+                di.db[j].block = blk;
+            }
+
+            if (blockCount > di.db.Length)
+            {
+                // Spill blocks [12 .. blockCount) into the indirect block as 36-byte {sig, block} entries,
+                // then point ib[0] at that block with a SHA3 hash of its serialized content.
+                int indirectBase = fileIndirectBlock[i];
+                if (indirectBase < 0)
+                    throw new InvalidOperationException("Indirect block was not allocated for a >12-block file.");
+                int extra = blockCount - di.db.Length;
+                int needed = (extra + indirectEntriesPerBlock - 1) / indirectEntriesPerBlock;
+                for (int k = 0; k < extra; k++)
+                {
+                    int blk = firstBlock + di.db.Length + k;
+                    int ibBlockIdx = indirectBase + (k / indirectEntriesPerBlock);
+                    int slot = k % indirectEntriesPerBlock;
+                    int entryOff = ibBlockIdx * BlockSize + slot * 36;
+                    byte[] hash = ProsperoOuterPfsSignature.ComputeBlockHash(
+                        image.AsSpan(blk * BlockSize, BlockSize));
+                    hash.CopyTo(image, entryOff);
+                    BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(entryOff + 32), blk);
+                }
+                for (int b = 0; b < needed && b < di.ib.Length; b++)
+                {
+                    int ibBlockIdx = indirectBase + b;
+                    di.ib[b].sig = ProsperoOuterPfsSignature.ComputeBlockHash(
+                        image.AsSpan(ibBlockIdx * BlockSize, BlockSize));
+                    di.ib[b].block = ibBlockIdx;
+                }
+            }
             inodes.Add(di);
         }
 

@@ -8,14 +8,13 @@
 // and pic*.dds are 3840x2160 (8294548 bytes), exactly 148 header bytes + width*height BC7 payload
 // bytes.
 //
-// This file produces byte-exact DDS headers and a spec-conformant BC7 payload using mode 6
+// This file produces deterministic DDS headers and a spec-conformant BC7 payload using mode 6
 // (single subset, RGBA, 7-bit endpoints + per-endpoint p-bit, 16 four-bit indices). Mode 6 is the
 // simplest BC7 block that still covers the full RGBA range, so the output is a valid BC7 texture
 // the console GPU can sample.
 
 #nullable enable
 
-using ImageMagick;
 using System;
 using System.IO;
 
@@ -47,17 +46,11 @@ public static class ProsperoDdsEncoder
         if (pngBytes is null || pngBytes.Length == 0)
             throw new ArgumentException("Empty image.", nameof(pngBytes));
 
-        using var image = new MagickImage(pngBytes);
-        int width = (int)image.Width;
-        int height = (int)image.Height;
-        if (width <= 0 || height <= 0)
+        ProsperoPngDecoder.Image image = ProsperoPngDecoder.Decode(pngBytes);
+        if (image.Width <= 0 || image.Height <= 0)
             throw new InvalidDataException("Image has no pixels.");
 
-        using IPixelCollection<byte> pixels = image.GetPixels();
-        byte[] rgba = pixels.ToByteArray(PixelMapping.RGBA)
-            ?? throw new InvalidDataException("Unable to read RGBA pixels.");
-
-        return EncodeRgbaToDds(rgba, width, height);
+        return EncodeRgbaToDds(image.Rgba, image.Width, image.Height);
     }
 
     /// <summary>

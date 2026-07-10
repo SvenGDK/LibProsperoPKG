@@ -15,8 +15,8 @@
 // The (tweak, data) key pair comes from the SHA3-256 EKPFS + new_crypt schedule in ProsperoPfsKeys,
 // which is checked BIDIRECTIONALLY: decrypting the on-disk outer
 // image yields coherent plaintext (the keystone file and the nested PFS superblock), and re-encrypting
-// that plaintext reproduces the original ciphertext byte-for-byte for every encrypted block. This type
-// packages that primitive as a first-class, in-memory, managed API (no temp
+// that plaintext yields the original ciphertext for every encrypted block. This type
+// packages that primitive as a first-class, in-memory API (no temp
 // files), ready for the nwonly outer-PFS assembler to consume.
 #nullable enable
 using LibProsperoPkg.Util;

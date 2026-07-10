@@ -140,26 +140,34 @@ public class ProsperoXtsDecryptReader : IMemoryReader
     public void Read(long position, byte[] buffer, int offset, int count)
     {
         var ctx = MakeCtx();
-        var sectorBuf = new byte[sectorSize];
-        var currentSector = (int)(position / sectorSize);
-        var offsetIntoSector = (int)(position - (sectorSize * currentSector));
-        ReadSectorBuffer(ctx, currentSector, sectorBuf);
-        int totalRead = 0;
-        while (count > 0)
+        try
         {
-            if (offsetIntoSector >= sectorSize)
+            var sectorBuf = new byte[sectorSize];
+            var currentSector = (int)(position / sectorSize);
+            var offsetIntoSector = (int)(position - (sectorSize * currentSector));
+            ReadSectorBuffer(ctx, currentSector, sectorBuf);
+            int totalRead = 0;
+            while (count > 0)
             {
-                currentSector++;
-                ReadSectorBuffer(ctx, currentSector, sectorBuf);
-                offsetIntoSector = 0;
+                if (offsetIntoSector >= sectorSize)
+                {
+                    currentSector++;
+                    ReadSectorBuffer(ctx, currentSector, sectorBuf);
+                    offsetIntoSector = 0;
+                }
+                int bufferedRead = Math.Min((int)sectorSize - offsetIntoSector, count);
+                Buffer.BlockCopy(sectorBuf, offsetIntoSector, buffer, offset, bufferedRead);
+                count -= bufferedRead;
+                offset += bufferedRead;
+                totalRead += bufferedRead;
+                offsetIntoSector += bufferedRead;
+                position += bufferedRead;
             }
-            int bufferedRead = Math.Min((int)sectorSize - offsetIntoSector, count);
-            Buffer.BlockCopy(sectorBuf, offsetIntoSector, buffer, offset, bufferedRead);
-            count -= bufferedRead;
-            offset += bufferedRead;
-            totalRead += bufferedRead;
-            offsetIntoSector += bufferedRead;
-            position += bufferedRead;
+        }
+        finally
+        {
+            ctx.cipher?.Dispose();
+            ctx.tweakCipher?.Dispose();
         }
     }
 

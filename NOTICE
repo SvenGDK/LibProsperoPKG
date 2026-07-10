@@ -13,14 +13,6 @@ You should have received a copy of the GNU General Public License along with thi
 program. If not, see <https://www.gnu.org/licenses/>.
 
 ------------------------------------------------------------------------
-Third-party components
-------------------------------------------------------------------------
-
-This library depends on the following package at build/run time:
-
-  * Magick.NET-Q8-AnyCPU - Apache License 2.0
-
-------------------------------------------------------------------------
 Derived code
 ------------------------------------------------------------------------
 

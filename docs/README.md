@@ -1,6 +1,6 @@
 # LibProsperoPkg Documentation
 
-This folder contains the developer documentation for **LibProsperoPkg**, a
+This folder contains the technical documentation for **LibProsperoPkg**, a
 .NET 10 / C# 14 library for building PS5 packages.
 
 ## Contents
@@ -20,7 +20,7 @@ in-process. The pipeline is:
 ```
 prepared folder (sce_sys/ + eboot + data)
         │
-        ▼  optional fake-sign of raw ELF modules (FakeSignSelfModules)
+        ▼  optional fake-sign of raw ELF modules (FakeSignSelfModules / LicenseFree)
         │
         ▼  inner PFS layout (ProsperoPfsLayout)
    plaintext inner PFS image
@@ -38,6 +38,8 @@ prepared folder (sce_sys/ + eboot + data)
 The library also has a read side. `ProsperoPackageExtractor` inspects and unpacks debug packages,
 `ProsperoDiscBackup` reassembles split `app_0.pkg` / `app_sc.pkg` backups from an `app.json`
 manifest, and the `License` and `NpDrm` namespaces read `rif` licences and project package
-content-info. See [api-overview.md](api-overview.md) for the full surface and
+content-info. `ProsperoBackupConverter` closes the loop from the read side back to the build side:
+it turns a decrypted backup into a debug fPKG by substituting each executable with its decrypted ELF
+and fake-signing it. See [api-overview.md](api-overview.md) for the full surface and
 [ps5-pkg-format.md](ps5-pkg-format.md) §9–§11 for the RIF, disc-backup and extraction formats.
 

@@ -127,6 +127,7 @@ public struct ProsperoCntHeader
     public uint main_ent_data_size;
     public ulong body_offset;
     public ulong body_size;
+    public ulong mandatory_size;
     public string content_id; // Length = PKG_CONTENT_ID_SIZE
     public uint drm_type;
     public uint content_type;

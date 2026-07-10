@@ -3,16 +3,15 @@
 //
 // Writer for the PS5 PFSv3 (and PFSv2) compression file format — the "PFSC" container.
 // Each block is Kraken-compressed with OodleKrakenEncoder; blocks that do not compress — or cannot be
-// expressed without the encoder's length escapes — fall back to STORED (uncompressed), matching the
-// target format's incompressible-data behavior (isBlockCompressed = 0). Both paths round-trip
-// byte-exact through the decoder.
+// expressed without the encoder's length escapes — fall back to stored (uncompressed) blocks
+// (isBlockCompressed = 0). Both paths round-trip exactly through the decoder.
 //
-// Every byte the writer emits is modeled: the 32-byte header, the 7-entry section directory (8-byte aligned, data
-// padded to 0x400), the git/shuffle constant sections (id=1/2), the bit-packed block-boundary table
-// (id=3) with its stored-block flags (0xCC/0x0C), single-chunk compressed flag (0x06), two-chunk
-// compressed flag (0x26) and saturating size hint, the per-block SHA3-256 hash table (id=4), and the
-// SHA3-256 file digest at 0x28. Compressed output is validated by decompressing it
-// and comparing byte-for-byte against the original input.
+// The writer emits the 32-byte header, the 7-entry section directory (8-byte aligned, data padded to
+// 0x400), the id=1/id=2 constant sections, the bit-packed block-boundary table (id=3) with its
+// stored-block flags (0xCC/0x0C), single-chunk compressed flag (0x06), two-chunk compressed flag
+// (0x26) and saturating size hint, the per-block SHA3-256 hash table (id=4), and the SHA3-256 file
+// digest at 0x28. Compressed output is validated by decompressing it and comparing the result
+// against the original input.
 #nullable enable
 using LibProsperoPkg.PFS.Compression.Oodle;
 using System;
@@ -24,7 +23,7 @@ namespace LibProsperoPkg.PFS.Compression;
 /// <summary>
 /// Produces a valid PS5 PFSv3/PFSv2 compression container ("PFSC"). Each block is
 /// Kraken-compressed with <see cref="Oodle.OodleKrakenEncoder"/>; incompressible blocks are
-/// stored uncompressed. Both paths round-trip byte-exact through the decoder.
+/// stored uncompressed. Both paths round-trip exactly through the decoder.
 /// </summary>
 public static class ProsperoCompressedPfsFileWriter
 {
@@ -50,6 +49,11 @@ public static class ProsperoCompressedPfsFileWriter
     private const ulong SizeHintShift = 44;
     private const ulong SizeHintMax = 0x1FFFF;       // 17-bit saturating (compressedSize - 1) hint
 
+    // Compress-vs-store threshold: a block is kept compressed only when its compressed size is
+    // <= (uncompressedSize * 15) >> 4 (i.e. it saved at least 1/16 = 6.25%); otherwise it is stored raw.
+    private static bool KeepCompressed(int compressedSize, int uncompressedSize)
+        => (long)compressedSize <= ((long)uncompressedSize * 15) >> 4;
+
     // id=1: 20-byte git hash (a fixed constant — SHA-1 of the encoder source revision).
     private static readonly byte[] GitHash =
     [
@@ -58,7 +62,7 @@ public static class ProsperoCompressedPfsFileWriter
     ];
 
     // id=2: 64-byte shuffle-pattern field-width table (constant; the SoA decompositions of the 13
-    // PfsShufflePattern entries). Emitted verbatim — CLI/nwonly output always uses shuffle NONE.
+    // PfsShufflePattern entries). The nwonly format uses shuffle NONE.
     private static readonly byte[] ShuffleTable =
     [
         0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -72,11 +76,8 @@ public static class ProsperoCompressedPfsFileWriter
     /// returns the complete container bytes.
     /// </summary>
     /// <param name="payload">The uncompressed data to wrap (the logical file the container expands to).</param>
-    /// <param name="level">
-    /// The Kraken level recorded in the header (default 7, matching "nwonly"). It has no effect
-    /// on stored data but is preserved so the container is indistinguishable from a tool-produced one and
-    /// its file digest matches.
-    /// </param>
+    /// <param name="level">The Kraken level recorded in the header (default 7). It has no effect
+    /// on stored data but is preserved because it contributes to the file digest.</param>
     /// <param name="blockSize">The logical block size (default 256 KiB). Must be positive.</param>
     /// <returns>The serialized PFSv3 container.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="payload"/> is null.</exception>
@@ -198,8 +199,8 @@ public static class ProsperoCompressedPfsFileWriter
     /// <summary>
     /// Builds a Kraken-compressed PFSv3 container for <paramref name="payload"/>. Each logical block is
     /// compressed with the Kraken encoder; blocks that do not compress below their stored
-    /// size are written stored (isBlockCompressed = 0), matching the target format's incompressible-data behavior.
-    /// The resulting container round-trips byte-exact through the decoder.
+    /// size are written stored (isBlockCompressed = 0). The resulting container round-trips exactly through
+    /// the decoder.
     /// </summary>
     /// <param name="payload">The uncompressed data to wrap.</param>
     /// <param name="level">The Kraken level recorded in the header (default 7, matching "nwonly").</param>
@@ -207,7 +208,7 @@ public static class ProsperoCompressedPfsFileWriter
     /// <param name="useHuffmanArrays">When true (the default), the literal/command/length streams within
     /// each chunk are Huffman-coded (entropy chunk type 2) where that is smaller than the raw form,
     /// producing markedly smaller blocks. Pass false for raw entropy arrays (larger, useful for
-    /// debugging/determinism). Both forms round-trip byte-exact through the decoder.</param>
+    /// debugging/determinism). Both forms round-trip exactly through the decoder.</param>
     /// <returns>The serialized PFSv3 container.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="blockSize"/> is not positive.</exception>
     /// <exception cref="PlatformNotSupportedException">SHA3-256 is unavailable on this host.</exception>
@@ -235,7 +236,7 @@ public static class ProsperoCompressedPfsFileWriter
 
             ReadOnlySpan<byte> block = size == 0 ? default : payload.Slice((int)cumulativeUncomp, size);
             EncodedBlock? encoded = size == 0 ? null : OodleKrakenEncoder.EncodeBlock(block, useHuffmanArrays);
-            if (encoded is EncodedBlock eb && eb.Payload.Length < size)
+            if (encoded is EncodedBlock eb && KeepCompressed(eb.Payload.Length, size))
             {
                 blockBytes[i] = eb.Payload;
                 blockIsCompressed[i] = true;

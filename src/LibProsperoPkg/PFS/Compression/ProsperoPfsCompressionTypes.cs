@@ -3,7 +3,7 @@
 //
 // Types for the PS5 PFS *compression file format*.
 //
-// These mirror the target format's numeric values byte-for-byte. They intentionally do NOT describe the PFS
+// These match the compression file format's numeric values. They intentionally do NOT describe the PFS
 // *filesystem* superblock version, which is a distinct, unrelated version number.
 #nullable enable
 namespace LibProsperoPkg.PFS.Compression;

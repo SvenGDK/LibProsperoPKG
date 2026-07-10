@@ -100,8 +100,7 @@ public sealed class ProsperoFihHeader
 
     /// <summary>
     /// The finalized-image format version (FIH offset 0x06, little-endian). The console mount path
-    /// (see Reversed/AppSubcontainerGetEEKpfs.md) requires this to be
-    /// <see cref="ProsperoPkgLayout.FihRequiredFormatVersion"/> (3).
+    /// requires this to be <see cref="ProsperoPkgLayout.FihRequiredFormatVersion"/> (3).
     /// </summary>
     public ushort FormatVersion { get; init; }
 

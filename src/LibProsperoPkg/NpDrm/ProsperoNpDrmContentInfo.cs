@@ -6,9 +6,7 @@
 // container offset, content id / title id, drm and content type, content flags, and the
 // derived is-patch / is-nested-image / patch-kind signals.
 //
-// Backed by Reversed/npdrm-content-info.md (AppSubcontainerGetNpDrmContentInfo /
-// GetPkgHeaderInfoByContentInfo / the CNT-header projection) and consumed by the mount
-// gate documented in Reversed/acceptance-gate.md.
+// The projection reads the CNT header fields and feeds the mount acceptance checks.
 
 using LibProsperoPkg.PKG;
 using System;
@@ -39,10 +37,10 @@ public enum ProsperoPatchKind
 }
 
 /// <summary>
-/// The normalized NpDrm content-info for a package. This is the producer-side mirror of the
+/// The normalized NpDrm content-info for a package. This mirrors the
 /// classification the console derives before mounting: it resolves the metadata container
 /// offset, projects the header fields, and decodes the is-patch / is-nested-image / patch-kind
-/// signals the mount gate checks. See <c>Reversed/npdrm-content-info.md</c>.
+/// signals the mount gate checks.
 /// </summary>
 public sealed class ProsperoNpDrmContentInfo
 {

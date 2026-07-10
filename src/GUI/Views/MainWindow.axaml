@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:LibProsperoPkg.Gui.ViewModels"
+        x:Class="LibProsperoPkg.Gui.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding Title}"
+        Width="1200" Height="850"
+        MinWidth="1000" MinHeight="850">
+
+  <Grid RowDefinitions="*,Auto,Auto">
+
+    <Grid Grid.Row="0" ColumnDefinitions="240,*" IsEnabled="{Binding !IsBusy}">
+      <Border Grid.Column="0" BorderBrush="#22808080" BorderThickness="0,0,1,0" Background="#0A808080">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="LibProsperoPkg" FontWeight="Bold" FontSize="16" Margin="16,16,16,10" />
+          <ListBox ItemsSource="{Binding Pages}"
+                   SelectedItem="{Binding SelectedPage, Mode=TwoWay}"
+                   Background="Transparent"
+                   Margin="4">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ToolPageViewModel">
+                <TextBlock Text="{Binding Title}" Padding="6,4" />
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+      <ContentControl Grid.Column="1" Content="{Binding SelectedPage}" />
+    </Grid>
+
+    <Grid Grid.Row="1" RowDefinitions="Auto,170">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Background="#12808080">
+        <TextBlock Grid.Column="0" Text="Log" FontWeight="SemiBold" Margin="14,6" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Content="Clear" Command="{Binding ClearLogCommand}" Margin="6,4" Padding="12,4" />
+      </Grid>
+      <TextBox Grid.Row="1"
+               Text="{Binding LogText}"
+               IsReadOnly="True"
+               AcceptsReturn="True"
+               TextWrapping="Wrap"
+               VerticalContentAlignment="Top"
+               FontFamily="Cascadia Mono,Consolas,monospace"
+               FontSize="12"
+               ScrollViewer.VerticalScrollBarVisibility="Auto" />
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Background="#12808080">
+      <ProgressBar Grid.Column="0"
+                   IsIndeterminate="{Binding IsBusy}"
+                   IsVisible="{Binding IsBusy}"
+                   Width="130" Margin="14,6" />
+      <TextBlock Grid.Column="1" Text="{Binding Status}" VerticalAlignment="Center" Margin="14,6" />
+    </Grid>
+
+  </Grid>
+</Window>

@@ -5,7 +5,7 @@
 // a PFSC header with every block stored at full size (no compression). This encoder produces
 // per-block compression.
 //
-// The format produced here is byte-for-byte readable by the existing
+// The format produced here is readable by the existing
 // LibProsperoPkg.PFS.PFSCReader (validated by round-trip), so it works for PS5 image workflows.
 #nullable enable
 using LibProsperoPkg.Util;

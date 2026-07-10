@@ -3,7 +3,7 @@
 //
 // Parser and verifier for the disc-backup PlayGo chunk-CRC file (app.crc / playgo-chunk.crc).
 // The file is a headerless array of little-endian CRC-32C (Castagnoli) values, one per 64 KiB
-// (0x10000) chunk of the reassembled package (see Reversed/disc-backup-format.md).
+// (0x10000) chunk of the reassembled package.
 
 using LibProsperoPkg.Util;
 using System;

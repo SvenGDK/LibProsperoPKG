@@ -10,8 +10,8 @@
 // container (see ProsperoPkgBuildProperties.InnerCompression).
 //
 // Compression and decompression use the codec in PFS/Compression: CompressedPfsFileWriter
-// (Kraken encoder) and CompressedPfsFile (Kraken decoder). Every byte the writer emits
-// round-trips byte-exact through the in-process decoder for the supported container shapes.
+// (Kraken encoder) and CompressedPfsFile (Kraken decoder). Writer output round-trips exactly
+// through the in-process decoder for the supported container shapes.
 #nullable enable
 using System;
 using System.Buffers.Binary;
@@ -215,8 +215,8 @@ public static class ProsperoCompressedPfsImage
 
     /// <summary>
     /// In-process self-test: packs <paramref name="image"/> with the Kraken encoder, decodes it
-    /// back with the Kraken decoder, and verifies the result is byte-exact. Returns <c>true</c>
-    /// on success. This does not require external processes.
+    /// back with the Kraken decoder, and verifies the result equals the input. Returns <c>true</c>
+    /// on success.
     /// </summary>
     /// <param name="image">The image to round-trip.</param>
     /// <param name="level">The Kraken level recorded in the header. Default 7.</param>

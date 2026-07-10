@@ -97,6 +97,33 @@ public static class ProsperoPkgSigner
     }
 
     /// <summary>
+    /// Produces the 384-byte CNT header-signature value: the 32-byte SHA3-256 header digest is
+    /// PKCS#1 v1.5 (type 2) padded and raised to the public exponent of the PKG-metadata RSA-3072
+    /// key. A verifier recovers the padded block with the private exponent, strips the padding and
+    /// compares the trailing 32 bytes to its own SHA3-256 of the header region.
+    /// </summary>
+    /// <param name="sha3Digest">The 32-byte SHA3-256 digest of the CNT header region.</param>
+    /// <returns>A 384-byte big-endian value.</returns>
+    /// <exception cref="InvalidOperationException">The PKG-metadata key is unavailable.</exception>
+    public static byte[] EncryptHeaderDigest(byte[] sha3Digest)
+    {
+        ArgumentNullException.ThrowIfNull(sha3Digest);
+        if (sha3Digest.Length != 32)
+            throw new ArgumentException("A SHA3-256 digest is exactly 32 bytes.", nameof(sha3Digest));
+
+        using var rsa = ProsperoKeys.CreateMetadataRsa();
+        return rsa.Encrypt(sha3Digest, RSAEncryptionPadding.Pkcs1);
+    }
+
+    /// <summary>Recovers the 32-byte digest sealed by <see cref="EncryptHeaderDigest"/>.</summary>
+    public static byte[] DecryptHeaderDigest(byte[] signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+        using var rsa = ProsperoKeys.CreateMetadataRsa();
+        return rsa.Decrypt(signature, RSAEncryptionPadding.Pkcs1);
+    }
+
+    /// <summary>
     /// Returns the big-endian modulus (n) of the embedded PKG-metadata RSA-3072 key (384 bytes).
     /// </summary>
     public static byte[] MetadataModulus()

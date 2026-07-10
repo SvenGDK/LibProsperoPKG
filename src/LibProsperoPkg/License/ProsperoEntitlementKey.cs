@@ -8,8 +8,8 @@
 // value the license record's 448-byte blob is built to deliver to the mount path.
 //
 // The blob-wrap that binds an entitlement key into a license record is produced with per-device
-// material that is not present in any host tool, so this type is a validated carrier for supplied
-// material only: it never fabricates the record blob. See Reversed/retail-drm-material.md.
+// material, so this type is a validated carrier for supplied material only: it never fabricates
+// the record blob.
 
 #nullable enable
 using System;
