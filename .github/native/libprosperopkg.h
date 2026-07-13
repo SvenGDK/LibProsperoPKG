@@ -36,12 +36,12 @@ extern "C" {
 #define LPP_OUTPUT_METADATA_CONTAINER  0
 #define LPP_OUTPUT_DEBUG_IMAGE         1
 
-/* Inner-image codec (build `inner_compression`). */
+/* Inner-image codec (build `inner_compression`). Retained for ABI compatibility and ignored: the
+ * inner image is always the data-first image (raw-concatenated per-file payloads described by a
+ * generated naps_pkg_layout.dat). */
 #define LPP_INNER_NONE               0
 #define LPP_INNER_ZLIB               1
 #define LPP_INNER_KRAKEN             2
-/* Installable data-first inner image: raw-concatenated per-file payloads described by a generated
- * naps_pkg_layout.dat. This is the recommended codec for installable homebrew packages. */
 #define LPP_INNER_NWONLY_DATA_FIRST  3
 
 /* Inner-image form (lpp_build_inner_image `form`). */
@@ -126,11 +126,11 @@ typedef struct lpp_build_options {
     int32_t struct_size;            /* sizeof(lpp_build_options) */
     int32_t mode;                   /* LPP_MODE_* */
     int32_t output_format;          /* LPP_OUTPUT_* */
-    int32_t inner_compression;      /* LPP_INNER_* */
+    int32_t inner_compression;      /* ignored (retained for ABI); the inner image is always data-first */
     int32_t application_type;       /* LPP_APP_TYPE_* */
     int32_t content_badge_type;     /* < 0 to omit */
     int32_t generate_param_json;    /* 0/1 (generate param.json when the source lacks one) */
-    int32_t compress_inner_image;   /* 0/1 (zlib PFSC inner image) */
+    int32_t compress_inner_image;   /* ignored (retained for ABI) */
     int32_t fake_sign_self;         /* 0/1 (fake-sign raw ELF modules before packing) */
     int32_t has_authority_id;       /* 0/1 (apply authority_id below) */
 

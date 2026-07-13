@@ -50,11 +50,11 @@ internal unsafe struct LppBuildOptions
     public int StructSize;
     public int Mode;
     public int OutputFormat;
-    public int InnerCompression;
+    public int InnerCompression;   // ignored (retained for ABI); the inner image is always data-first
     public int ApplicationType;
     public int ContentBadgeType;   // negative to omit
     public int GenerateParamJson;  // 0/1
-    public int CompressInnerImage; // 0/1
+    public int CompressInnerImage; // ignored (retained for ABI)
     public int FakeSignSelf;       // 0/1
     public int HasAuthorityId;     // 0/1
 
@@ -297,6 +297,7 @@ internal static unsafe class NativeExports
     {
         try
         {
+            _ = innerCompression; // ignored: the inner image is always the data-first image
             var options = new ProsperoBuildOptions
             {
                 SourceFolder = Utf8ToString(sourceFolder) ?? "",
@@ -308,7 +309,6 @@ internal static unsafe class NativeExports
                 Version = Fallback(Utf8ToString(version), "01.00"),
                 Mode = ToEnum<ProsperoPackageMode>(mode),
                 OutputFormat = ToEnum<ProsperoOutputFormat>(outputFormat),
-                InnerCompression = ToEnum<ProsperoInnerCompression>(innerCompression),
             };
 
             ProsperoBuildResult result = ProsperoPackageBuilder.Build(options);
@@ -352,10 +352,8 @@ internal static unsafe class NativeExports
                 Version = Fallback(Utf8ToString(o.Version), "01.00"),
                 Mode = ToEnum<ProsperoPackageMode>(o.Mode),
                 OutputFormat = ToEnum<ProsperoOutputFormat>(o.OutputFormat),
-                InnerCompression = ToEnum<ProsperoInnerCompression>(o.InnerCompression),
                 ApplicationType = ToEnum<ProsperoApplicationType>(o.ApplicationType),
                 GenerateParamJsonIfMissing = o.GenerateParamJson != 0,
-                CompressInnerImage = o.CompressInnerImage != 0,
                 FakeSignSelfModules = o.FakeSignSelf != 0,
             };
 
@@ -1193,6 +1191,7 @@ internal static unsafe class NativeExports
                 return -1;
             }
 
+            _ = innerCompression; // ignored: the inner image is always the data-first image
             var options = new ProsperoBackupConversionOptions
             {
                 BackupFolder = b,
@@ -1201,7 +1200,6 @@ internal static unsafe class NativeExports
                 Passcode = Fallback(Utf8ToString(passcode), new string('0', 32)),
                 Version = Utf8ToString(version) ?? "",
                 UseEmbeddedRightSprx = useEmbeddedRightSprx != 0,
-                InnerCompression = ToEnum<ProsperoInnerCompression>(innerCompression),
             };
 
             string? sub = Utf8ToString(decryptedSubfolder);
@@ -1425,6 +1423,7 @@ internal static unsafe class NativeExports
             if (string.IsNullOrEmpty(hb) || string.IsNullOrEmpty(of))
             { _lastError = "homebrew_folder and output_folder are required"; return -1; }
 
+            _ = innerCompression; // ignored: the inner image is always the data-first image
             var options = new ProsperoHomebrewPackageOptions
             {
                 HomebrewFolder = hb,
@@ -1433,7 +1432,6 @@ internal static unsafe class NativeExports
                 Passcode = Fallback(Utf8ToString(passcode), new string('0', 32)),
                 Title = Utf8ToString(title) ?? "",
                 Version = Utf8ToString(version) ?? "",
-                InnerCompression = ToEnum<ProsperoInnerCompression>(innerCompression),
             };
             string? module = Utf8ToString(moduleName);
             if (!string.IsNullOrEmpty(module)) options.ModuleName = module;
