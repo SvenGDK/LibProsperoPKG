@@ -100,7 +100,7 @@ public static class ProsperoPkgValidator
         {
             checks.Add(Pass("Finalized image", $"Finalized {(fih.IsOfficial ? "retail" : "debug")} image (signed byte 0x{fih.SignedByte:X2})."));
 
-            // 2. FIH format version must be 3 (the value getEEKc requires).
+            // 2. FIH format version must be 3.
             checks.Add(fih.IsSupportedFormatVersion
                 ? Pass("FIH format version", $"Version {fih.FormatVersion} (required: {ProsperoPkgLayout.FihRequiredFormatVersion}).")
                 : Fail("FIH format version", $"Version {fih.FormatVersion}; the mount path requires {ProsperoPkgLayout.FihRequiredFormatVersion}."));

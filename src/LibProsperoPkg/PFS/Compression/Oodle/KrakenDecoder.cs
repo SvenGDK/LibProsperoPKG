@@ -2,14 +2,13 @@
 // Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
-// Kraken (newLZ) decoder for "nwonly" PFSv3 Kraken blocks: entropy-coded
+// Kraken (newLZ) decoder for PFSv3 Kraken blocks: entropy-coded
 // literals/commands/offsets/lengths, the post-seed 0x80 "excess" framing, and both literal models,
 // including the excess-substream length escapes and continuation-byte excess-count parse.
 //
-// Portions of the decode logic are an index-based translation of a GPLv3-licensed third-party
-// decompressor; see NOTICE for the attribution. LibProsperoPkg as a whole is licensed under the
-// GNU GPLv3; section 13 of the GPLv3 expressly permits conveying a work that links/combines
-// GPLv3-covered code. Uses byte[]/int indices only.
+// Portions of the decode logic carry a GPLv3 attribution; see NOTICE. LibProsperoPkg as a whole is
+// licensed under the GNU GPLv3; section 13 of the GPLv3 expressly permits conveying a work that
+// links/combines GPLv3-covered code. Uses byte[]/int indices only.
 //
 // Supported chunk-decode (DecodeBytes) array types: 0 (raw / memcpy-short) and 2/4 (Huffman, both
 // code-length encodings + single/triple stream split). Types 1 (TANS), 3 (RLE) and 5 (recursive /

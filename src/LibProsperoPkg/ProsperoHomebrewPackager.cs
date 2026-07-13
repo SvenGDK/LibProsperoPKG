@@ -9,7 +9,6 @@
 
 using LibProsperoPkg.Content;
 using LibProsperoPkg.License;
-using LibProsperoPkg.PKG;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -60,20 +59,6 @@ public sealed class ProsperoHomebrewPackageOptions
 
     /// <summary>When true the assembled source tree is kept after the build. Off by default.</summary>
     public bool KeepStaging { get; set; }
-
-    /// <summary>
-    /// When true the inner <c>pfs_image.dat</c> is stored PFSC-compressed. Off by default. See
-    /// <see cref="ProsperoBuildOptions.CompressInnerImage"/>.
-    /// </summary>
-    public bool CompressInnerImage { get; set; }
-
-    /// <summary>
-    /// Inner-image codec selection. Defaults to <see cref="ProsperoInnerCompression.NwonlyDataFirst"/>:
-    /// the PS5 nwonly "data-first" inner image for installable packages, with raw-concatenated
-    /// per-file payloads described by a generated <c>naps_pkg_layout.dat</c>.
-    /// See <see cref="ProsperoBuildOptions.InnerCompression"/>.
-    /// </summary>
-    public ProsperoInnerCompression InnerCompression { get; set; } = ProsperoInnerCompression.NwonlyDataFirst;
 
     /// <summary>
     /// Fake-self options (app/firmware version, authority-id override) applied to the module. When
@@ -194,8 +179,6 @@ public static class ProsperoHomebrewPackager
                 Version = version,
                 LicenseFree = true,
                 FselfOptions = options.FselfOptions,
-                CompressInnerImage = options.CompressInnerImage,
-                InnerCompression = options.InnerCompression,
                 GenerateParamJsonIfMissing = true,
             };
 

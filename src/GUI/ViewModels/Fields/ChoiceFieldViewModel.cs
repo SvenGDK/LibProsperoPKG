@@ -14,7 +14,5 @@ public sealed class ChoiceFieldViewModel(IReadOnlyList<ChoiceOption> options, Ch
         set => SetProperty(ref _selected, value);
     }
 
-    public object? SelectedValue => Selected?.Value;
-
     public T SelectedAs<T>() => (T)Selected!.Value;
 }

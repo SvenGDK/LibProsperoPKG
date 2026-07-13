@@ -36,6 +36,14 @@ public sealed class ProsperoExtractionOptions
 
     /// <summary>Subdirectory (under the output directory) for outer metadata files.</summary>
     public string OuterMetadataSubdirectory { get; set; } = "_outer";
+
+    /// <summary>
+    /// When true (and <see cref="ExtractOuterMetadata"/> is set), also writes the nested
+    /// <c>pfs_image.dat</c> itself — the raw on-disk inner image bytes, undecoded — into
+    /// <see cref="OuterMetadataSubdirectory"/>. This is the raw inner-geometry payload that the
+    /// standard outer-metadata pass deliberately skips (it decodes it instead). Off by default.
+    /// </summary>
+    public bool IncludeNestedImageRaw { get; set; }
 }
 
 /// <summary>What <see cref="ProsperoPackageExtractor.Inspect"/> reports about a package.</summary>
@@ -312,7 +320,8 @@ public static class ProsperoPackageExtractor
             }
 
             if (options.ExtractOuterMetadata)
-                extractedCount += ExtractOuterMetadata(outer, outputDirectory, options.OuterMetadataSubdirectory, log);
+                extractedCount += ExtractOuterMetadata(
+                    outer, outputDirectory, options.OuterMetadataSubdirectory, options.IncludeNestedImageRaw, log);
         }
 
         string? fingerprint = usedEkpfs is null ? null : Convert.ToHexString(usedEkpfs.AsSpan(0, 4));
@@ -352,32 +361,103 @@ public static class ProsperoPackageExtractor
 
         using var pkgStream = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         long fileLength = pkgStream.Length;
-        var (signedByte, pfsOffset, _) = ReadFihFields(pkgStream, fileLength);
+        var (signedByte, pfsOffset, pfsSize) = ReadFihFields(pkgStream, fileLength);
+        long superblockAbs = ReadFihSuperblockOffset(pkgStream);
         bool isRetail = signedByte == 0x80;
 
         var outerState = PeekOuterState(new LibProsperoPkg.Util.StreamReader(pkgStream, pfsOffset));
         var candidates = key.ResolveEkpfsCandidates(contentId);
 
         byte[]? usedEkpfs = null;
-        ProsperoPfsReader outer = outerState == OuterPfsState.Plaintext
-            ? new ProsperoPfsReader(new LibProsperoPkg.Util.StreamReader(pkgStream, pfsOffset), 0)
-            : candidates.Count == 0
-                ? throw new ProsperoExtractionException(isRetail
-                    ? "The outer filesystem is encrypted (finalized retail image); supply the image key with FromEkpfs(...)."
-                    : "The outer filesystem is encrypted; supply a passcode or image key.")
-                : OpenOuterWithCandidates(pkgStream, pfsOffset, candidates, out usedEkpfs)
-                    ?? throw new ProsperoExtractionException("None of the derived/supplied keys decrypted the outer filesystem.");
+        ProsperoPfsReader outer;
+        if (outerState == OuterPfsState.Plaintext)
+            outer = new ProsperoPfsReader(new LibProsperoPkg.Util.StreamReader(pkgStream, pfsOffset), 0);
+        else if (candidates.Count == 0)
+            throw new ProsperoExtractionException(isRetail
+                ? "The outer filesystem is encrypted (finalized retail image); supply the image key with FromEkpfs(...)."
+                : "The outer filesystem is encrypted; supply a passcode or image key.");
+        else
+            // Superblock-first (classic) path first; then the "data-first" outer PFS, matching Extract.
+            outer = OpenOuterWithCandidates(pkgStream, pfsOffset, candidates, out usedEkpfs)
+                ?? OpenDataFirstOuter(pkgStream, pfsOffset, pfsSize, superblockAbs, candidates, out usedEkpfs)
+                ?? throw new ProsperoExtractionException("None of the derived/supplied keys decrypted the outer filesystem.");
 
         var innerOuterFile = outer.GetFile("pfs_image.dat") ?? FindByName(outer, "pfs_image.dat");
         if (innerOuterFile is null)
             return ProsperoPfsExtractor.ListEntries(outer);
 
         IMemoryReader onDisk = innerOuterFile.GetView();
-        IMemoryReader innerImage = innerOuterFile.flags.HasFlag(ProsperoInodeFlags.compressed)
-            ? new ProsperoPfscReader(onDisk)
-            : onDisk;
+
+        // A "data-first" inner (a raw file concatenation described by naps_pkg_layout.dat) has no PFSC
+        // magic and no superblock at offset 0; it is listed from the reconstructed mount, matching Extract.
+        var napsFile = outer.GetFile("naps_pkg_layout.dat") ?? FindByName(outer, "naps_pkg_layout.dat");
+        byte[] head16 = new byte[16];
+        onDisk.Read(0, head16, 0, 16);
+        bool headIsPfsc = head16[0] == (byte)'P' && head16[1] == (byte)'F' && head16[2] == (byte)'S' && head16[3] == (byte)'C';
+        if (napsFile is not null && !headIsPfsc && !HasInnerSuperblock(head16))
+            return ListNwonlyInner(onDisk, innerOuterFile, napsFile);
+
+        IMemoryReader innerImage;
+        if (innerOuterFile.flags.HasFlag(ProsperoInodeFlags.compressed))
+        {
+            // 'PFSC' magic covers both the zlib image (version 0) and the Kraken container (version 2/3);
+            // the Kraken container is decompressed up-front, matching Extract.
+            byte[] head = new byte[8];
+            onDisk.Read(0, head, 0, 8);
+            int pfscVersion = BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(4));
+            if (pfscVersion == 2 || pfscVersion == 3)
+            {
+                long onDiskSize = innerOuterFile.compressed_size > 0 ? innerOuterFile.compressed_size : innerOuterFile.size;
+                byte[] container = new byte[onDiskSize];
+                onDisk.Read(0, container, 0, (int)onDiskSize);
+                byte[] plainInner = LibProsperoPkg.PFS.Compression.ProsperoCompressedPfsFile.Parse(container).Decompress();
+                innerImage = new LibProsperoPkg.Util.StreamReader(new MemoryStream(plainInner), 0, takeOwnership: true);
+            }
+            else
+            {
+                innerImage = new ProsperoPfscReader(onDisk);
+            }
+        }
+        else
+        {
+            innerImage = onDisk;
+        }
+
         var inner = new ProsperoPfsReader(innerImage, 0, usedEkpfs);
         return ProsperoPfsExtractor.ListEntries(inner);
+    }
+
+    // Lists a PS5 "data-first" inner pfs_image.dat from the reconstructed mount, without writing anything.
+    // The read/decode path mirrors ExtractNwonlyInner.
+    private static List<ProsperoExtractedEntry> ListNwonlyInner(
+        IMemoryReader innerOnDisk, ProsperoPfsReader.File innerFile, ProsperoPfsReader.File napsFile)
+    {
+        long innerAvail = innerFile.size;
+        long mountSize = innerFile.compressed_size > innerFile.size ? innerFile.compressed_size : 0;
+        byte[] innerBytes = new byte[innerAvail];
+        innerOnDisk.Read(0, innerBytes, 0, (int)innerAvail);
+
+        long napsSize = napsFile.size;
+        byte[] napsBytes = new byte[napsSize];
+        napsFile.GetView().Read(0, napsBytes, 0, (int)napsSize);
+
+        ProsperoPs5InnerMountResult mountResult;
+        IReadOnlyList<ProsperoPs5InnerFileEntry> tree;
+        try
+        {
+            mountResult = ProsperoPs5InnerImageReader.ReconstructMount(innerBytes, napsBytes, mountSize);
+            tree = ProsperoPs5InnerImageReader.ReadFileTree(mountResult.Mount, mountResult.SuperblockOffset);
+        }
+        catch (Exception ex)
+        {
+            throw new ProsperoExtractionException(
+                "Failed to decode the data-first inner image via naps_pkg_layout.dat.", ex);
+        }
+
+        var list = new List<ProsperoExtractedEntry>(tree.Count);
+        foreach (var f in tree)
+            list.Add(new ProsperoExtractedEntry { RelativePath = f.Path.Replace('\\', '/'), Size = f.Size, IsCompressed = false });
+        return list;
     }
 
     private static ProsperoPfsReader? OpenOuterWithCandidates(
@@ -523,21 +603,24 @@ public static class ProsperoPackageExtractor
     }
 
     private static int ExtractOuterMetadata(
-        ProsperoPfsReader outer, string outputDirectory, string subdirectory, Action<string> log)
+        ProsperoPfsReader outer, string outputDirectory, string subdirectory, bool includeNestedImageRaw, Action<string> log)
     {
         string outDir = Path.Combine(outputDirectory, subdirectory);
         int count = 0;
         foreach (var file in outer.GetAllFiles())
         {
-            if (string.Equals(file.name, "pfs_image.dat", StringComparison.OrdinalIgnoreCase))
+            bool isNested = string.Equals(file.name, "pfs_image.dat", StringComparison.OrdinalIgnoreCase);
+            if (isNested && !includeNestedImageRaw)
                 continue;
 
             string rel = file.name;
             string dest = Path.GetFullPath(Path.Combine(outDir, rel));
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            file.Save(dest, decompress: true);
+            // The nested inner image is written raw (undecoded) so its on-disk geometry can be
+            // inspected byte-for-byte; all other outer files are PFSC-decoded when applicable.
+            file.Save(dest, decompress: !isNested);
             count++;
-            log($"  [outer] {rel}");
+            log(isNested ? $"  [outer] {rel} (raw nested image)" : $"  [outer] {rel}");
         }
 
         return count;

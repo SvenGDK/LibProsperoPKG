@@ -176,9 +176,12 @@ public static class ProsperoPkgMerger
         long total;
         string? digest = null;
 
-        FileStream[] sources = [.. ordered.Select(File.OpenRead)];
+        var sources = new FileStream[ordered.Count];
         try
         {
+            for (int i = 0; i < ordered.Count; i++)
+                sources[i] = File.OpenRead(ordered[i]);
+
             var segments = sources.Select(fs => ((Stream)fs, 0L, fs.Length));
             using var concat = new ProsperoConcatStream(segments);
             total = concat.Length;
@@ -198,8 +201,8 @@ public static class ProsperoPkgMerger
         }
         finally
         {
-            foreach (FileStream s in sources)
-                s.Dispose();
+            foreach (var s in sources)
+                s?.Dispose();
         }
 
         return new ProsperoPkgMergeResult

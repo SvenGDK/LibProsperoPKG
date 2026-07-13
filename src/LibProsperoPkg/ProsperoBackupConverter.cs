@@ -12,7 +12,6 @@
 
 using LibProsperoPkg.Content;
 using LibProsperoPkg.License;
-using LibProsperoPkg.PKG;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -71,15 +70,6 @@ public sealed class ProsperoBackupConversionOptions
     /// backup's module is substituted and fake-signed like every other executable).
     /// </summary>
     public bool UseEmbeddedRightSprx { get; set; }
-
-    /// <summary>
-    /// When true the inner <c>pfs_image.dat</c> is stored PFSC-compressed. Off by default. See
-    /// <see cref="ProsperoBuildOptions.CompressInnerImage"/>.
-    /// </summary>
-    public bool CompressInnerImage { get; set; }
-
-    /// <summary>Inner-image codec selection. See <see cref="ProsperoBuildOptions.InnerCompression"/>.</summary>
-    public ProsperoInnerCompression InnerCompression { get; set; } = ProsperoInnerCompression.None;
 
     /// <summary>
     /// Fake-self options (app/firmware version, authority-id override) applied to every module. When
@@ -215,8 +205,6 @@ public static class ProsperoBackupConverter
                 Version = version,
                 FakeSignSelfModules = true,
                 FselfOptions = options.FselfOptions,
-                CompressInnerImage = options.CompressInnerImage,
-                InnerCompression = options.InnerCompression,
                 GenerateParamJsonIfMissing = true,
             };
 

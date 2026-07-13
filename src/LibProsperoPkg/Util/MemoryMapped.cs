@@ -138,7 +138,7 @@ class BufferedMemoryReader : IMemoryReader
 
     public void Read(long pos, byte[] buf, int offset, int count)
     {
-        while (count > 0 && pos > 0)
+        while (count > 0)
         {
             if (bufferStart > pos || pos >= bufferStart + buffer.Length)
             {

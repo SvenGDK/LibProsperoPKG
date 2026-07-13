@@ -39,7 +39,7 @@ public sealed class ProsperoExtractedEntry
 
 /// <summary>
 /// Extracts the files of an opened <see cref="ProsperoPfsReader"/> to a directory. See the file
-/// header for the scope. All writes are confined to the output directory (path-traversal safe).
+/// header for what this covers. All writes are confined to the output directory (path-traversal safe).
 /// </summary>
 public static class ProsperoPfsExtractor
 {

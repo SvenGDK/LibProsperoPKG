@@ -54,79 +54,13 @@ public static class ProsperoOuterPfsImage
     public const int DefaultBlockSize = 0x10000;
 
     /// <summary>
-    /// Computes the index of the plaintext metadata (superblock) block from the package-absolute
-    /// image and metadata offsets recorded in the FIH / <c>pfsimage.xml</c>
-    /// (e.g. image <c>0x10000</c>, metadata <c>0x70000</c>, block <c>0x10000</c> ⇒ block 6).
-    /// </summary>
-    public static int MetadataBlockIndex(long imageOffset, long metadataOffset, int blockSize = DefaultBlockSize)
-    {
-        if (blockSize <= 0 || (blockSize & 15) != 0)
-            throw new ArgumentOutOfRangeException(nameof(blockSize), "Block size must be a positive multiple of 16.");
-        if (metadataOffset < imageOffset)
-            throw new ArgumentOutOfRangeException(nameof(metadataOffset), "Metadata offset must not precede the image offset.");
-        long rel = metadataOffset - imageOffset;
-        if ((rel % blockSize) != 0)
-            throw new ArgumentException("Metadata offset is not block-aligned within the image.", nameof(metadataOffset));
-        return checked((int)(rel / blockSize));
-    }
-
-    /// <summary>
-    /// AES-XTS transforms <paramref name="image"/> in place: every whole block is encrypted (or
-    /// decrypted) as a single XTS data unit with the sector number equal to its block index,
-    /// except <paramref name="plaintextBlockIndex"/> which is left untouched. Returns the number
-    /// of blocks transformed.
-    /// </summary>
-    /// <param name="image">The full outer-PFS image (mutated in place).</param>
-    /// <param name="tweakKey">16-byte AES-XTS tweak key.</param>
-    /// <param name="dataKey">16-byte AES-XTS data key.</param>
-    /// <param name="blockSize">Block size in bytes (default 0x10000); must be a multiple of 16.</param>
-    /// <param name="plaintextBlockIndex">Index of the metadata/superblock block to leave plaintext, or a negative value to encrypt every block.</param>
-    /// <param name="encrypt"><c>true</c> to encrypt, <c>false</c> to decrypt.</param>
-    public static int Transform(
-        Span<byte> image, ReadOnlySpan<byte> tweakKey, ReadOnlySpan<byte> dataKey,
-        int blockSize, int plaintextBlockIndex, bool encrypt)
-    {
-        if (tweakKey.Length != 16)
-            throw new ArgumentException($"Tweak key must be 16 bytes (was {tweakKey.Length}).", nameof(tweakKey));
-        if (dataKey.Length != 16)
-            throw new ArgumentException($"Data key must be 16 bytes (was {dataKey.Length}).", nameof(dataKey));
-        if (blockSize <= 0 || (blockSize & 15) != 0)
-            throw new ArgumentOutOfRangeException(nameof(blockSize), "Block size must be a positive multiple of 16.");
-
-        var xts = new XtsBlockTransform(dataKey.ToArray(), tweakKey.ToArray());
-        int total = (image.Length + blockSize - 1) / blockSize;
-        int transformed = 0;
-
-        for (int i = 0; i < total; i++)
-        {
-            if (i == plaintextBlockIndex)
-                continue;
-
-            int offset = i * blockSize;
-            int len = Math.Min(blockSize, image.Length - offset);
-            if ((len & 15) != 0)
-                throw new ArgumentException(
-                    $"Block {i} length {len} is not a multiple of the AES block size (16).", nameof(image));
-
-            // CryptSector treats the whole buffer as one XTS data unit (GF-doubling the tweak
-            // per 16 bytes), which is exactly the validated outer-image scheme.
-            byte[] block = image.Slice(offset, len).ToArray();
-            xts.CryptSector(block, (ulong)i, encrypt);
-            block.CopyTo(image.Slice(offset, len));
-            transformed++;
-        }
-
-        return transformed;
-    }
-
-    /// <summary>
     /// AES-XTS transforms <paramref name="image"/> in place using an explicit per-block
     /// classification: <see cref="ProsperoOuterBlockKind.Data"/> blocks use sector = block index,
     /// <see cref="ProsperoOuterBlockKind.Signed"/> blocks use sector =
     /// <see cref="ProsperoOuterPfsSignature.SignedBlockTweakFlag"/> | block index (PS5), and
     /// <see cref="ProsperoOuterBlockKind.Plaintext"/> blocks are left untouched. This is the full
-    /// validated PS5 nwonly outer-image scheme (data blocks 0-5 plain, superblock plaintext, signed
-    /// metadata blocks 7-10 with bit 47 set). Returns the number of blocks transformed.
+    /// validated outer-image scheme (data blocks 0-4 plain, superblock (block 6) plaintext, signed
+    /// blocks 5,7-10 with bit 47 set). Returns the number of blocks transformed.
     /// </summary>
     public static int Transform(
         Span<byte> image, ReadOnlySpan<byte> tweakKey, ReadOnlySpan<byte> dataKey,
@@ -170,44 +104,4 @@ public static class ProsperoOuterPfsImage
 
         return transformed;
     }
-    public static int EncryptInPlace(
-        Span<byte> image, byte[] ekpfs, byte[] seed, int plaintextBlockIndex,
-        int blockSize = DefaultBlockSize)
-    {
-        var (tweak, data) = ProsperoPfsKeys.DeriveImageEncryptionKeys(ekpfs, seed);
-        return Transform(image, tweak, data, blockSize, plaintextBlockIndex, encrypt: true);
-    }
-
-    /// <summary>
-    /// Decrypts the outer image in place (inverse of <see cref="EncryptInPlace(Span{byte}, byte[], byte[], int, int)"/>).
-    /// </summary>
-    public static int DecryptInPlace(
-        Span<byte> image, byte[] ekpfs, byte[] seed, int plaintextBlockIndex,
-        int blockSize = DefaultBlockSize)
-    {
-        var (tweak, data) = ProsperoPfsKeys.DeriveImageEncryptionKeys(ekpfs, seed);
-        return Transform(image, tweak, data, blockSize, plaintextBlockIndex, encrypt: false);
-    }
-
-    /// <summary>
-    /// Encrypts the outer image in place, deriving the EKPFS (and then the AES-XTS keys) from the
-    /// package <paramref name="contentId"/> + <paramref name="passcode"/> and the 16-byte
-    /// <paramref name="seed"/> in one step.
-    /// </summary>
-    public static int EncryptInPlace(
-        Span<byte> image, string contentId, string passcode, byte[] seed, int plaintextBlockIndex,
-        int blockSize = DefaultBlockSize)
-        => EncryptInPlace(image, ProsperoPfsKeys.DeriveEkpfs(contentId, passcode), seed,
-            plaintextBlockIndex, blockSize);
-
-    /// <summary>
-    /// Decrypts the outer image in place, deriving the keys from the package
-    /// <paramref name="contentId"/> + <paramref name="passcode"/> and the <paramref name="seed"/>.
-    /// </summary>
-    public static int DecryptInPlace(
-        Span<byte> image, string contentId, string passcode, byte[] seed, int plaintextBlockIndex,
-        int blockSize = DefaultBlockSize)
-        => DecryptInPlace(image, ProsperoPfsKeys.DeriveEkpfs(contentId, passcode), seed,
-            plaintextBlockIndex, blockSize);
-
 }

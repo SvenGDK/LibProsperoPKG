@@ -40,38 +40,6 @@ public abstract class ProsperoCntEntry
         Crypto.AesCbcCfb128Encrypt(tmp, tmp, tmp.Length, iv_key.Skip(16).Take(16).ToArray(), iv_key.Take(16).ToArray());
         s.Write(tmp, 0, tmp.Length);
     }
-
-    private static byte[] Decrypt(byte[] entryBytes, byte[] keySeed, ProsperoCntMetaEntry meta)
-    {
-        var iv_key = Crypto.Sha256(
-               meta.GetBytes()
-               .Concat(keySeed)
-               .ToArray());
-        var tmp = new byte[entryBytes.Length];
-        Crypto.AesCbcCfb128Decrypt(tmp, entryBytes, tmp.Length, iv_key.Skip(16).Take(16).ToArray(), iv_key.Take(16).ToArray());
-        return tmp;
-    }
-
-    /// <summary>
-    /// Decrypts the given bytes using the entry encryption.
-    /// </summary>
-    public static byte[] Decrypt(byte[] entryBytes, string contentId, string passcode, ProsperoCntMetaEntry meta)
-    {
-        return Decrypt(entryBytes, Crypto.ComputeKeys(contentId, passcode, meta.KeyIndex), meta);
-    }
-
-    /// <summary>
-    /// Decrypts the given entry using the entry encryption.
-    /// Throws an exception if it can't be decrypted.
-    /// </summary>
-    public static byte[] Decrypt(byte[] entryBytes, ProsperoCnt pkg, ProsperoCntMetaEntry meta)
-    {
-        if (meta.KeyIndex != 3)
-        {
-            throw new Exception("We only have the key for encryption key 3");
-        }
-        return Decrypt(entryBytes, Crypto.RSA2048Decrypt(pkg.EntryKeys.Keys[3].key, RSAKeyset.PkgDerivedKey3Keyset), meta);
-    }
 }
 
 /// <summary>
@@ -166,23 +134,30 @@ public class ProsperoCntKeysEntry : ProsperoCntEntry
     public ProsperoCntKeysEntry(string contentId, string passcode)
     {
         Keys = new ProsperoCntEntryKey[7];
-        seedDigest = Crypto.Sha256(Encoding.ASCII.GetBytes(contentId.PadRight(48, '\0')));
+        // PS5 CNT ENTRY_KEYS (0x10, 2944 bytes): the seed is SHA3-256 of the 48-byte content id, and the
+        // seven passcode-derived keys are wrapped with RSA-3072 (EME-PKCS#1 v1.5) under the pkg moduli in
+        // Keys/Data/passcode.bin (7 x 384-byte moduli). Each of the seven digests wraps its passcode-derived
+        // key under the matching modulus.
+        seedDigest = Crypto.Sha3_256(Encoding.ASCII.GetBytes(contentId.PadRight(48, '\0')));
+        var moduli = LibProsperoPkg.Keys.ProsperoKeys.PasscodeKey; // 7 * 384-byte RSA-3072 moduli (big-endian)
         for (uint i = 0; i < 7; i++)
         {
-            var passcodeKey = Crypto.ComputeKeys(contentId, passcode, i);
+            var passcodeKey = Crypto.ComputeKeys(contentId, passcode, i, useSha3: true);
+            var modulus = moduli.Slice((int)i * 384, 384).ToArray();
             Keys[i] = new ProsperoCntEntryKey
             {
-                digest = Crypto.Sha256(passcodeKey).Xor(passcodeKey),
-                key = Crypto.RSA2048EncryptKey(Util.CryptoKeys.PkgPublicKeys[i], passcodeKey)
+                digest = Crypto.Sha3_256(passcodeKey).Xor(passcodeKey),
+                key = Crypto.RsaPkcs1EncryptKey(modulus, passcodeKey)
             };
         }
-        Keys[0].key = Crypto.RSA2048EncryptKey(Util.CryptoKeys.PkgPublicKeys[0], Encoding.ASCII.GetBytes(passcode));
+        // Index 0 wraps the raw passcode ASCII (the passcode-recovery slot), not its derived key.
+        Keys[0].key = Crypto.RsaPkcs1EncryptKey(moduli.Slice(0, 384).ToArray(), Encoding.ASCII.GetBytes(passcode));
     }
     public byte[] seedDigest;
     public ProsperoCntEntryKey[] Keys;
     public override ProsperoCntEntryId Id => ProsperoCntEntryId.ENTRY_KEYS;
     public override string Name => null;
-    public override uint Length => 2048;
+    public override uint Length => (uint)(32 + Keys.Length * 32 + Keys.Sum(k => k.key.Length));
     public override void Write(Stream s)
     {
         s.Write(seedDigest, 0, 32);
@@ -192,7 +167,7 @@ public class ProsperoCntKeysEntry : ProsperoCntEntry
         }
         foreach (var key in Keys)
         {
-            s.Write(key.key, 0, 256);
+            s.Write(key.key, 0, key.key.Length);
         }
     }
     public static ProsperoCntKeysEntry Read(ProsperoCntMetaEntry e, Stream pkg)
@@ -201,6 +176,8 @@ public class ProsperoCntKeysEntry : ProsperoCntEntry
         var seedDigest = pkg.ReadBytes(32);
         var digests = new byte[7][];
         var keys = new ProsperoCntEntryKey[7];
+        // Wrapped-key size follows the entry size (RSA-3072 = 384 bytes).
+        int keySize = ((int)e.DataSize - 32 - 7 * 32) / 7;
         for (var x = 0; x < 7; x++)
         {
             digests[x] = pkg.ReadBytes(32);
@@ -210,7 +187,7 @@ public class ProsperoCntKeysEntry : ProsperoCntEntry
             keys[x] = new ProsperoCntEntryKey
             {
                 digest = digests[x],
-                key = pkg.ReadBytes(256)
+                key = pkg.ReadBytes(keySize)
             };
         }
         return new ProsperoCntKeysEntry(seedDigest, keys) { meta = e };

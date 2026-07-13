@@ -3,10 +3,7 @@
 //
 // CNT container structures, entries and writer primitives.
 #nullable disable
-using LibProsperoPkg.Util;
-using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace LibProsperoPkg.PKG;
 
@@ -32,84 +29,9 @@ public class ProsperoCnt
 
     public List<ProsperoCntEntry> Entries;
 
-    // Constants
-    const uint PKG_FLAG_FINALIZED = 1u << 31;
-    const ulong PKG_PFS_FLAG_NESTED_IMAGE = 0x8000000000000000UL;
-    public const int PKG_TABLE_ENTRY_SIZE = 0x20;
-    public const int PKG_ENTRY_KEYSET_SIZE = 0x20;
     public const int HASH_SIZE = 0x20;
     public const string MAGIC = "\u007FCNT";
 
-    const int PKG_MAX_ENTRY_KEYS = 7;
-    const int PKG_CONTENT_ID_HASH_SIZE = HASH_SIZE;
-    const int PKG_ENTRY_KEYS_XHASHES_SIZE = (PKG_MAX_ENTRY_KEYS * HASH_SIZE);
-    const int PKG_PASSCODE_KEY_SIZE = 0x100;
-    const int PKG_IMAGE_KEY_SIZE = 0x100;
-    const int PKG_ENTRY_KEY_SIZE = 0x100;
-
-    const int PKG_PLAYGO_CHUNK_HASH_TABLE_OFFSET = 0x40;
-    const int PKG_PLAYGO_CHUNK_HASH_SIZE = 0x4;
-    const int PKG_PLAYGO_PFS_CHUNK_SIZE = 0x10000;
-
-    const int PKG_SHAREPARAM_FILE_VERSION_MAJOR = 1;
-    const int PKG_SHAREPARAM_FILE_VERSION_MINOR = 10;
-
-    public const int PKG_CONTENT_ID_SIZE = 0x30;
-    public const int PKG_HEADER_SIZE = 0x5A0;
-    public const int PKG_ENTRY_KEYSET_ENC_SIZE = 0x100;
-
-    /// <summary>
-    /// Decrypts the EKPFS for a package. Will not work on retail-only packages.
-    /// </summary>
-    /// <returns>The EKPFS if successful; null otherwise</returns>
-    public byte[] GetEkpfs()
-    {
-        try
-        {
-            var dk3 = Crypto.RSA2048Decrypt(EntryKeys.Keys[3].key, RSAKeyset.PkgDerivedKey3Keyset);
-            var iv_key = Crypto.Sha256(ImageKey.meta.GetBytes().Concat(dk3).ToArray());
-            var imageKeyDecrypted = ImageKey.FileData.Clone() as byte[];
-            Crypto.AesCbcCfb128Decrypt(
-              imageKeyDecrypted,
-              imageKeyDecrypted,
-              imageKeyDecrypted.Length,
-              iv_key.Skip(16).Take(16).ToArray(),
-              iv_key.Take(16).ToArray());
-            return Crypto.RSA2048Decrypt(imageKeyDecrypted, RSAKeyset.FakeKeyset);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Checks if the given passcode is valid for this pkg
-    /// </summary>
-    /// <param name="passcode"></param>
-    /// <returns>True if the passcode is correct</returns>
-    public bool CheckPasscode(string passcode)
-    {
-        if (passcode == null || passcode.Length != 32) return false;
-        var dk0 = Crypto.ComputeKeys(Header.content_id, passcode, 0);
-        var digest0 = Crypto.Sha256(dk0).Xor(dk0);
-        return digest0.SequenceEqual(EntryKeys.Keys[0].digest);
-    }
-
-    public bool CheckDerivedKey(byte[] dk, int index)
-    {
-        if (index < 0 || index > 6)
-        {
-            throw new ArgumentException("Invalid derived key index: " + index);
-        }
-        if (dk == null || dk.Length != 32)
-            return false;
-        var digest = Crypto.Sha256(dk).Xor(dk);
-        return digest.SequenceEqual(EntryKeys.Keys[index].digest);
-
-    }
-
-    public bool CheckEkpfs(byte[] dk1) => CheckDerivedKey(dk1, 1);
 }
 
 
@@ -160,4 +82,26 @@ public struct ProsperoCntHeader
     public byte[] pfs_signed_digest;
     public ulong pfs_split_size_nth_0;
     public ulong pfs_split_size_nth_1;
+
+    // 0x4A0: outer-PFS AES-XTS crypt seed (16 bytes). Mirrors the seed stored in the outer superblock
+    // at superblock+0x370 and used to derive the image encryption keys — so this locator descriptor
+    // references the encrypted image with its actual seed.
+    public byte[] image_seed;
+    // 0x4B0 / 0x4B8: the CNT container's own locator inside the FINALIZED mount image (FIH-relative).
+    // cnt_region_offset = FIH block (0x10000) + pfs_image_size; cnt_region_size = the CNT container size.
+    // Their sum equals package_size. The on-console 0x80b21185 install geometry gate enumerates the
+    // content region these descriptors locate; leaving them zero makes the enumeration total 0.
+    public ulong cnt_region_offset;
+    public ulong cnt_region_size;
+    // 0x510: content-region descriptor — two (u32 offset, u32 size) big-endian pairs into the CNT content
+    // region. Pair 1 = the IMAGE_KEY entry (id 0x0020); pair 2 = the mandatory entry (the entry whose
+    // DataOffset == mandatory_size @0x30, i.e. the imagedigs entry, id 0x040A).
+    public uint desc_image_key_offset;
+    public uint desc_image_key_size;
+    public uint desc_mandatory_offset;
+    public uint desc_mandatory_size;
+    // 0x520: the descriptor's region-digest table — two consecutive 32-byte SHA3-256 digests (64 bytes):
+    //   0x520 = SHA3-256(IMAGE_KEY entry payload), 0x540 = SHA3-256(imagedigs entry payload).
+    // Two 32-byte SHA3-256 slots over the IMAGE_KEY and imagedigs entry payloads. See ComputeDescriptorDigest.
+    public byte[] desc_digest;
 }

@@ -117,28 +117,6 @@ public sealed class ProsperoBuildOptions
     public bool GenerateParamJsonIfMissing { get; set; } = true;
 
     /// <summary>
-    /// When true the inner <c>pfs_image.dat</c> is stored PFSC-compressed (shrinking the package,
-    /// the dominant size driver) instead of raw. Incompressible images fall back to the raw wrapper
-    /// automatically. Off by default to preserve the size-stable path. This is the zlib
-    /// PFSC used for the installable inner image; for the <c>nwonly</c> Kraken codec
-    /// set <see cref="InnerCompression"/> to <see cref="ProsperoInnerCompression.Kraken"/> instead.
-    /// </summary>
-    public bool CompressInnerImage { get; set; }
-
-    /// <summary>
-    /// Selects the inner-image codec explicitly. When left at <see cref="ProsperoInnerCompression.None"/>
-    /// the legacy <see cref="CompressInnerImage"/> flag decides (true =&gt; <see cref="ProsperoInnerCompression.Zlib"/>).
-    /// When set to a non-<c>None</c> value this takes precedence over <see cref="CompressInnerImage"/>:
-    /// <list type="bullet">
-    /// <item><see cref="ProsperoInnerCompression.Zlib"/> — zlib PFSC (installable inner image).</item>
-    /// <item><see cref="ProsperoInnerCompression.Kraken"/> — PS5 PFSv3 Kraken (the
-    /// <c>nwonly</c> inner-image codec).
-    /// Incompressible images fall back to the raw wrapper automatically.</item>
-    /// </list>
-    /// </summary>
-    public ProsperoInnerCompression InnerCompression { get; set; } = ProsperoInnerCompression.None;
-
-    /// <summary>
     /// The application type recorded in a generated <c>param.json</c> ("Paid Standalone Full App",
     /// "Upgradable App", "Demo App", "Freemium App"). It is written as the <c>applicationDrmType</c>
     /// bucket (and drives the <c>pfsimage.xml</c> <c>&lt;application-type&gt;</c>). Defaults to
@@ -370,10 +348,10 @@ public static class ProsperoPackageBuilder
     public static bool IsDlcMode(ProsperoPackageMode mode) =>
         mode is ProsperoPackageMode.AdditionalContentData or ProsperoPackageMode.AdditionalContentNoData;
 
-    /// <summary>The PS5 application category type written into a generated param.json for a mode.</summary>
+    /// <summary>The PS5 application category type written into a generated param.json.</summary>
     private static int CategoryTypeForMode(ProsperoPackageMode mode) => mode switch
     {
-        // 0 = PS5 Game/App. DLC packages carry no applicationCategoryType in their param.json.
+        // 0 = PS5 Game/App, the only category the generated param.json currently emits.
         _ => 0,
     };
 
@@ -473,8 +451,6 @@ public static class ProsperoPackageBuilder
             ContentId = options.ContentId,
             Passcode = options.Passcode,
             VolumeType = ProsperoVolumeTypeForMode(options.Mode),
-            CompressInnerImage = options.CompressInnerImage,
-            InnerCompression = options.InnerCompression,
         };
 
         log("Building the PS5 package...");

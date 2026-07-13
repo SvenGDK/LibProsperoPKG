@@ -39,12 +39,12 @@ public sealed class PfscPage : ToolPageViewModel
 
     private void PackBlock(Action<string> log)
     {
-        ProsperoCompressedPfsImage.PackFile(Input, Output, ProsperoCompressedPfsImage.DefaultLevel, ProsperoCompressedPfsImage.DefaultBlockSize);
+        ProsperoCompressedPfsImage.PackFile(Input, Output, ProsperoCompressedPfsImage.DefaultLevel, ProsperoCompressedPfsImage.DefaultBlockSize, log);
         log("Packed: " + Output);
     }
 
     private void UnpackBlock(Action<string> log)
-        => log("Unpacked bytes: " + ProsperoCompressedPfsImage.UnpackFile(Input, Output));
+        => log("Unpacked bytes: " + ProsperoCompressedPfsImage.UnpackFile(Input, Output, log));
 
     private void CheckContainer(Action<string> log)
         => log("PFSC container: " + (ProsperoPfsc.IsPfsc(Input) ? "yes" : "no"));

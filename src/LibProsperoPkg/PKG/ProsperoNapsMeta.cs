@@ -32,6 +32,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -120,9 +121,18 @@ public static class ProsperoNapsMeta
     /// <param name="innerImageSize">Block-aligned inner-image size (finalized-image header offset 0xA0).</param>
     /// <param name="mountImage">The finalized FIH+PFS+CNT mount image; block digests are computed over it.</param>
     /// <param name="contentFiles">Inner content files in load order: relative path and plain size.</param>
+    /// <param name="inner">
+    /// The assembled nwonly inner-image result. When supplied, the per-block info tables
+    /// (ibcl/i2ob/i2op/ihsh) and the <c>file</c> record describe the compressed <b>inner</b>-image NAPS
+    /// block map (afid raw extents + data-region hole ublocks + metadata ublocks) instead of an identity
+    /// map over the outer <paramref name="mountImage"/>. When <see langword="null"/> (legacy inners), the
+    /// exact previous outer-block behavior is kept. <c>obdg</c>/<c>rhsh</c> stay over the outer image in
+    /// both cases.
+    /// </param>
     /// <returns>The encrypted blob (length a multiple of 16), or an empty array when inputs are insufficient.</returns>
     public static byte[] BuildMeta18(
-        ulong innerImageSize, byte[] mountImage, IReadOnlyList<(string Path, long Size)> contentFiles)
+        ulong innerImageSize, byte[] mountImage, IReadOnlyList<(string Path, long Size)> contentFiles,
+        LibProsperoPkg.PFS.ProsperoPs5InnerImageResult? inner = null)
     {
         ArgumentNullException.ThrowIfNull(mountImage);
         ArgumentNullException.ThrowIfNull(contentFiles);
@@ -131,6 +141,12 @@ public static class ProsperoNapsMeta
 
         uint innerBlocks = (uint)(innerImageSize / PfsBlockSize);
         int outerBlocks = mountImage.Length / Meta18BlockSize;
+
+        // nwonly: build ibcl/i2ob/i2op/ihsh/file over the compressed INNER-image NAPS block map so the
+        // installer derives a nonzero, 0x10000-aligned content package_size and clears the 0x80b21185
+        // geometry gate. Legacy inners pass inner==null and keep the outer identity-map behavior.
+        List<Meta18Block>? blocks = inner is not null ? BuildInnerBlocks(inner) : null;
+        int metaFirstBlockIndex = blocks is null ? -1 : blocks.FindIndex(b => b.Tail == Meta300KindId);
 
         var plain = new List<byte>(4096);
 
@@ -146,66 +162,157 @@ public static class ProsperoNapsMeta
             WriteRecord(plain, "phdr", 1, p);
         }
 
-        // file: one 0x18 entry per content file [u64 size, u32 index, u32 type, u32 extra, u32 flag].
+        // file: one 0x18 entry per content file [u64 size, u32 index, u32 type, u32 field10, u32 flag].
+        // afid file -> index = its first i2ob block index (= its position), type 1, field10 0, flag 0 for
+        // the first file (keystone) else 1. The nwonly "*PFSmetadata" pseudo-file -> index = the first
+        // metadata block's i2ob index, type 3, field10 0x3E9, flag 0.
         {
             var body = new byte[contentFiles.Count * 0x18];
             for (int i = 0; i < contentFiles.Count; i++)
             {
                 Span<byte> e = body.AsSpan(i * 0x18, 0x18);
+                bool isMeta = blocks is not null && contentFiles[i].Path == PfsMetadataFileName;
+                uint idx = isMeta && metaFirstBlockIndex >= 0 ? (uint)metaFirstBlockIndex : (uint)i;
+                uint type = isMeta ? 3u : 1u;
+                uint field10 = isMeta ? (uint)Meta300KindId : 0u;
+                uint flag = isMeta ? 0u : (i == 0 ? 0u : 1u);
                 BinaryPrimitives.WriteUInt64LittleEndian(e[..8], (ulong)contentFiles[i].Size);
-                WriteU32(e, 0x08, (uint)i);
-                WriteU32(e, 0x0C, 1);
-                WriteU32(e, 0x14, i == 0 ? 0u : 1u);
+                WriteU32(e, 0x08, idx);
+                WriteU32(e, 0x0C, type);
+                WriteU32(e, 0x10, field10);
+                WriteU32(e, 0x14, flag);
             }
             WriteRecord(plain, "file", 2, body);
         }
 
-        // ibcl: one class byte per outer block.
+        // ibcl: one class byte per block. Inner path: 0x01 when the block's owning content file has
+        // flag==1 (right.sprx/eboot), else 0x0F (keystone + every hole/metadata block).
         {
-            var body = new byte[outerBlocks];
-            Array.Fill(body, (byte)0x0F);
-            WriteRecord(plain, "ibcl", 1, body);
+            if (blocks is not null)
+            {
+                var body = new byte[blocks.Count];
+                for (int i = 0; i < blocks.Count; i++)
+                    body[i] = blocks[i].OwnerFlag == 1 ? (byte)0x01 : (byte)0x0F;
+                WriteRecord(plain, "ibcl", 1, body);
+            }
+            else
+            {
+                var body = new byte[outerBlocks];
+                Array.Fill(body, (byte)0x0F);
+                WriteRecord(plain, "ibcl", 1, body);
+            }
         }
 
-        // i2ob: 0x28 per outer block [u64 offset, u32 size, u32 csize, u32 psize, u32, u32, u32, u32, u32 tail].
+        // i2ob: 0x28 per block. Inner path:
+        //   +0x00 u64 co (compressed offset in pfs_image.dat) +0x08 u32 cs (=c0+c1) +0x0C u32 ps (plaintext
+        //   coverage) +0x10 u32 c0 (first 0x20000 sub-chunk) +0x14 u32 c1 (second) +0x18 u32 mb (=co>>16)
+        //   +0x1C u32 0 +0x20 u32 1 +0x24 u32 flag (0x40090000 afid|0x40110000 hole|0x40450000 meta-full|
+        //   0x40050000 meta-last).
         {
-            var body = new byte[outerBlocks * 0x28];
-            for (int i = 0; i < outerBlocks; i++)
+            if (blocks is not null)
             {
-                Span<byte> e = body.AsSpan(i * 0x28, 0x28);
-                BinaryPrimitives.WriteUInt64LittleEndian(e[..8], (ulong)i * Meta18BlockSize);
-                WriteU32(e, 0x08, (uint)Meta18BlockSize);
-                WriteU32(e, 0x0C, (uint)Meta18BlockSize);
-                WriteU32(e, 0x10, (uint)Meta18BlockSize);
-                WriteU32(e, 0x24, 0x40090000);
+                var body = new byte[blocks.Count * 0x28];
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    Meta18Block b = blocks[i];
+                    Span<byte> e = body.AsSpan(i * 0x28, 0x28);
+                    BinaryPrimitives.WriteUInt64LittleEndian(e[..8], b.Co);
+                    WriteU32(e, 0x08, b.Cs);
+                    WriteU32(e, 0x0C, b.Ps);
+                    WriteU32(e, 0x10, b.C0);
+                    WriteU32(e, 0x14, b.C1);
+                    WriteU32(e, 0x18, (uint)(b.Co >> 16));
+                    WriteU32(e, 0x20, 1);
+                    WriteU32(e, 0x24, b.Flag);
+                }
+                WriteRecord(plain, "i2ob", 1, body);
             }
-            WriteRecord(plain, "i2ob", 1, body);
+            else
+            {
+                var body = new byte[outerBlocks * 0x28];
+                for (int i = 0; i < outerBlocks; i++)
+                {
+                    Span<byte> e = body.AsSpan(i * 0x28, 0x28);
+                    BinaryPrimitives.WriteUInt64LittleEndian(e[..8], (ulong)i * Meta18BlockSize);
+                    WriteU32(e, 0x08, (uint)Meta18BlockSize);
+                    WriteU32(e, 0x0C, (uint)Meta18BlockSize);
+                    WriteU32(e, 0x10, (uint)Meta18BlockSize);
+                    WriteU32(e, 0x24, 0x40090000);
+                }
+                WriteRecord(plain, "i2ob", 1, body);
+            }
         }
 
-        // i2op: 0x10 per outer block [u64 image offset, u64 outer position] (identity for a stored image).
+        // i2op: 0x10 per block [u64 co, u64 co>>16] (a pure projection of i2ob on the inner path; the
+        // identity map for a legacy stored image).
         {
-            var body = new byte[outerBlocks * 0x10];
-            for (int i = 0; i < outerBlocks; i++)
+            if (blocks is not null)
             {
-                Span<byte> e = body.AsSpan(i * 0x10, 0x10);
-                BinaryPrimitives.WriteUInt64LittleEndian(e[..8], (ulong)i * Meta18BlockSize);
-                BinaryPrimitives.WriteUInt64LittleEndian(e.Slice(8, 8), (ulong)i * Meta18BlockSize);
+                var body = new byte[blocks.Count * 0x10];
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    Span<byte> e = body.AsSpan(i * 0x10, 0x10);
+                    BinaryPrimitives.WriteUInt64LittleEndian(e[..8], blocks[i].Co);
+                    BinaryPrimitives.WriteUInt64LittleEndian(e.Slice(8, 8), blocks[i].Co >> 16);
+                }
+                WriteRecord(plain, "i2op", 1, body);
             }
-            WriteRecord(plain, "i2op", 1, body);
+            else
+            {
+                var body = new byte[outerBlocks * 0x10];
+                for (int i = 0; i < outerBlocks; i++)
+                {
+                    Span<byte> e = body.AsSpan(i * 0x10, 0x10);
+                    BinaryPrimitives.WriteUInt64LittleEndian(e[..8], (ulong)i * Meta18BlockSize);
+                    BinaryPrimitives.WriteUInt64LittleEndian(e.Slice(8, 8), (ulong)i * Meta18BlockSize);
+                }
+                WriteRecord(plain, "i2op", 1, body);
+            }
         }
 
-        // ihsh: 0x30 per outer block [u32 index, u32 size, 32B SHA3-256(block), 8B zero].
+        // ihsh: 0x30 per block [u32 idx, u32 size, 32B digest, u64 tail]. Inner path: holes carry
+        // idx=0/size=ps, digest = SHA3-256 of the plaintext (zero-filled) hole block of size ps, and
+        // tail=0. afid/metadata carry a per-block digest with tail=0 / 0x3E9;
+        // their 40-byte ICV is the PFS image hasher's and is not reproducible offline, so it is a
+        // best-effort SHA3-256 over the block's on-disk bytes. The gate verifies only geometry, not any
+        // ihsh digest value.
         {
-            var body = new byte[outerBlocks * 0x30];
-            for (int i = 0; i < outerBlocks; i++)
+            if (blocks is not null)
             {
-                Span<byte> e = body.AsSpan(i * 0x30, 0x30);
-                WriteU32(e, 0x00, (uint)i);
-                WriteU32(e, 0x04, (uint)Meta18BlockSize);
-                byte[] h = ProsperoImageDigests.Sha3_256(mountImage.AsSpan(i * Meta18BlockSize, Meta18BlockSize));
-                h.AsSpan(0, 32).CopyTo(e.Slice(0x08, 32));
+                var body = new byte[blocks.Count * 0x30];
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    Meta18Block b = blocks[i];
+                    Span<byte> e = body.AsSpan(i * 0x30, 0x30);
+                    if (b.IsHole)
+                    {
+                        WriteU32(e, 0x00, 0);
+                        WriteU32(e, 0x04, b.Ps);
+                        byte[] h = ProsperoImageDigests.Sha3_256(InnerHoleDigestPreimage(b.Ps));
+                        h.AsSpan(0, 32).CopyTo(e.Slice(0x08, 32));
+                    }
+                    else
+                    {
+                        byte[] h = ProsperoImageDigests.Sha3_256(InnerBlockBytes(inner!.Image, b.OnDiskOffset, (int)b.OnDiskLen));
+                        h.AsSpan(0, 32).CopyTo(e.Slice(0x08, 32));
+                        BinaryPrimitives.WriteUInt64LittleEndian(e.Slice(0x28, 8), b.Tail);
+                    }
+                }
+                WriteRecord(plain, "ihsh", 1, body);
             }
-            WriteRecord(plain, "ihsh", 1, body);
+            else
+            {
+                var body = new byte[outerBlocks * 0x30];
+                for (int i = 0; i < outerBlocks; i++)
+                {
+                    Span<byte> e = body.AsSpan(i * 0x30, 0x30);
+                    WriteU32(e, 0x00, (uint)i);
+                    WriteU32(e, 0x04, (uint)Meta18BlockSize);
+                    byte[] h = ProsperoImageDigests.Sha3_256(mountImage.AsSpan(i * Meta18BlockSize, Meta18BlockSize));
+                    h.AsSpan(0, 32).CopyTo(e.Slice(0x08, 32));
+                }
+                WriteRecord(plain, "ihsh", 1, body);
+            }
         }
 
         // rhsh: root digest over the superblock block, remainder zero (176 bytes).
@@ -217,13 +324,13 @@ public static class ProsperoNapsMeta
             WriteRecord(plain, "rhsh", 1, body);
         }
 
-        // fstr: NUL-separated content-file relative paths.
+        // fstr: content-file relative paths, each (including the last) NUL-terminated.
         {
             var sb = new StringBuilder();
-            for (int i = 0; i < contentFiles.Count; i++)
+            foreach (var (path, _) in contentFiles)
             {
-                if (i > 0) sb.Append('\0');
-                sb.Append(contentFiles[i].Path.Replace('\\', '/'));
+                sb.Append(path.Replace('\\', '/'));
+                sb.Append('\0');
             }
             WriteRecord(plain, "fstr", 1, Encoding.ASCII.GetBytes(sb.ToString()));
         }
@@ -322,6 +429,114 @@ public static class ProsperoNapsMeta
         }
         if (carry != 0) r[0] ^= 0x87;
         return r;
+    }
+
+    // ---- nwonly inner-image NAPS block map (for ibcl/i2ob/i2op/ihsh/file) --------------------------
+
+    /// <summary>256 KiB uncompressed NAPS block used by the inner-image geometry.</summary>
+    private const long Meta18UBlock = 0x40000;
+
+    /// <summary>The pseudo content-file name the nwonly SI appends for the inner PFS metadata region.</summary>
+    private const string PfsMetadataFileName = "*PFSmetadata";
+
+    /// <summary>
+    /// One entry of the compressed inner-image NAPS block map. <see cref="Co"/> is the block's byte offset
+    /// inside the packed <c>pfs_image.dat</c>; <see cref="Cs"/> its stored/compressed size (== C0+C1);
+    /// <see cref="Ps"/> the plaintext byte span it covers; <see cref="C0"/>/<see cref="C1"/> the two
+    /// 0x20000 sub-chunk compressed sizes; <see cref="Flag"/> the block-class word. <see cref="OwnerFlag"/>
+    /// drives ibcl; <see cref="Tail"/> is the ihsh trailer (0x3E9 for metadata). For a real (non-hole)
+    /// block, <see cref="OnDiskOffset"/>/<see cref="OnDiskLen"/> locate its compressed bytes in the image.
+    /// </summary>
+    private readonly record struct Meta18Block(
+        ulong Co, uint Cs, uint Ps, uint C0, uint C1, uint Flag,
+        bool IsHole, uint OwnerFlag, ulong Tail, long OnDiskOffset, uint OnDiskLen);
+
+    /// <summary>
+    /// Derives the compressed inner-image NAPS block map for <paramref name="inner"/>: the 3-way afid raw
+    /// extents (<see cref="LibProsperoPkg.PFS.ProsperoPs5InnerPlacement"/>), the data-region hole ublocks tiling
+    /// <c>[DataEndLogical, MetaBaseLogical)</c>, and the metadata ublocks (<c>MetadataBlocks</c>). This is
+    /// the same geometry <see cref="ProsperoNwonlyNapsGenerator"/> emits for <c>naps_pkg_layout.dat</c>.
+    /// </summary>
+    private static List<Meta18Block> BuildInnerBlocks(LibProsperoPkg.PFS.ProsperoPs5InnerImageResult inner)
+    {
+        var blocks = new List<Meta18Block>();
+
+        // 1) afid raw extents: one entry per placed file (afid order). Raw, so cs=ps=c0=size, c1=0,
+        //    flag 0x40090000. The first afid (keystone) has owner flag 0, the rest 1.
+        var placements = inner.Placements;
+        for (int i = 0; i < placements.Count; i++)
+        {
+            LibProsperoPkg.PFS.ProsperoPs5InnerPlacement p = placements[i];
+            uint cs = (uint)p.OnDiskSize;
+            blocks.Add(new Meta18Block(
+                Co: (ulong)p.OnDiskOffset, Cs: cs, Ps: (uint)p.UncompressedSize, C0: cs, C1: 0,
+                Flag: 0x40090000u, IsHole: false, OwnerFlag: i == 0 ? 0u : 1u, Tail: 0,
+                OnDiskOffset: p.OnDiskOffset, OnDiskLen: cs));
+        }
+
+        // 2) data-region hole ublocks tiling [DataEndLogical, MetaBaseLogical) by 256 KiB. Each hole
+        //    compresses to 0x10 bytes (two 8-byte 0x20000 sub-chunks); identical-plaintext holes reuse the
+        //    same compressed offset (dedup, stride cs from BlockInfoOnDiskOffset). flag 0x40110000.
+        long padding = inner.MetaBaseLogical - inner.DataEndLogical;
+        if (padding > 0)
+        {
+            int nblk = (int)((padding + Meta18UBlock - 1) / Meta18UBlock);
+            var holeCo = new Dictionary<uint, ulong>();
+            ulong cursor = (ulong)inner.BlockInfoOnDiskOffset;
+            for (int k = 0; k < nblk; k++)
+            {
+                uint ps = (uint)Math.Min(Meta18UBlock, padding - (long)k * Meta18UBlock);
+                if (!holeCo.TryGetValue(ps, out ulong co))
+                {
+                    co = cursor;
+                    holeCo[ps] = co;
+                    cursor += 0x10;
+                }
+                blocks.Add(new Meta18Block(
+                    Co: co, Cs: 0x10, Ps: ps, C0: 8, C1: 8, Flag: 0x40110000u,
+                    IsHole: true, OwnerFlag: 0, Tail: 0, OnDiskOffset: 0, OnDiskLen: 0));
+            }
+        }
+
+        // 3) metadata ublocks: co = MetadataOnDiskOffset + cumulative cs; c0 = first sub-chunk, c1 = cs-c0
+        //    (0 when single-sub-chunk); flag 0x40450000 (two sub-chunks) / 0x40050000 (one); ihsh tail 0x3E9.
+        IReadOnlyList<LibProsperoPkg.PFS.ProsperoInnerMetaBlockChunk> metaChunks = inner.MetadataBlocks;
+        if (metaChunks.Count == 0 && inner.MetadataPlaintext.Length > 0)
+        {
+            var mf = LibProsperoPkg.PFS.Compression.ProsperoCompressedPfsFile.Parse(
+                LibProsperoPkg.PFS.Compression.ProsperoCompressedPfsImage.Pack(
+                    inner.MetadataPlaintext, 7, (int)Meta18UBlock));
+            metaChunks = mf.Blocks.Select(b => new LibProsperoPkg.PFS.ProsperoInnerMetaBlockChunk(
+                b.CompressedSize, b.UncompressedSize, b.IsMultiChunk, b.FirstChunkCompressedSize)).ToList();
+        }
+        ulong metaCursor = (ulong)inner.MetadataOnDiskOffset;
+        foreach (LibProsperoPkg.PFS.ProsperoInnerMetaBlockChunk m in metaChunks)
+        {
+            uint cs = (uint)m.CompressedSize;
+            uint c0 = m.IsMultiChunk ? (uint)m.FirstChunkCompressedSize : cs;
+            uint c1 = m.IsMultiChunk ? cs - c0 : 0;
+            uint flag = c1 > 0 ? 0x40450000u : 0x40050000u;
+            blocks.Add(new Meta18Block(
+                Co: metaCursor, Cs: cs, Ps: (uint)m.UncompressedSize, C0: c0, C1: c1, Flag: flag,
+                IsHole: false, OwnerFlag: 0, Tail: Meta300KindId,
+                OnDiskOffset: (long)metaCursor, OnDiskLen: cs));
+            metaCursor += cs;
+        }
+
+        return blocks;
+    }
+
+    // ihsh preimage for a hole block: the plaintext (zero-filled) block content of the covered plaintext
+    // size. SHA3-256 over it yields the hole digest for that plaintext size.
+    private static byte[] InnerHoleDigestPreimage(uint plaintextSize) => new byte[plaintextSize];
+
+    // Bounds-safe slice of a real block's compressed bytes from the inner image (for the ihsh digest).
+    private static ReadOnlySpan<byte> InnerBlockBytes(byte[] image, long offset, int length)
+    {
+        if (image is null || offset < 0 || length <= 0 || offset >= image.Length)
+            return ReadOnlySpan<byte>.Empty;
+        int avail = (int)Math.Min((long)length, image.Length - offset);
+        return image.AsSpan((int)offset, avail);
     }
 
 }

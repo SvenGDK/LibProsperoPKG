@@ -175,7 +175,7 @@ public sealed class ProsperoRif
     /// <summary>
     /// Builds a structural RIF for <paramref name="contentId"/>. The 448-byte
     /// <paramref name="keyBlob"/> (if supplied) is copied verbatim; when omitted the blob is
-    /// left zero. A from-scratch record is only valid for the fake/debug path or as a template
+    /// left zero. A record built without a supplied blob is only valid for the fake/debug path or as a template
     /// whose blob comes from an existing license — a retail entitlement blob cannot be forged.
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="contentId"/> is empty/too long or the blob is too large.</exception>

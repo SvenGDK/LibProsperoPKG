@@ -21,9 +21,8 @@ under the GNU General Public License v3.0:
 <https://github.com/maxton/LibOrbisPkg>.
 
   * General-purpose utilities in src/LibProsperoPkg/Util/: Crypto.cs,
-    Keys.cs, MemoryMapped.cs, MersenneTwister.cs, OffsetStream.cs,
-    StreamExtensions.cs, SubStream.cs, WriterBase.cs and
-    XtsBlockTransform.cs.
+    Keys.cs, MemoryMapped.cs, OffsetStream.cs, StreamExtensions.cs,
+    SubStream.cs, WriterBase.cs and XtsBlockTransform.cs.
 
   * The PFS filesystem model, builder and reader in src/LibProsperoPkg/PFS/:
     ProsperoPfsStructs.cs, ProsperoPfsBuilder.cs, ProsperoPfsReader.cs,
@@ -39,10 +38,10 @@ their public types carry the Prospero prefix in this library.
 
 The Kraken (newLZ) decode and bitstream logic in
 src/LibProsperoPkg/PFS/Compression/Oodle/ (KrakenDecoder.cs,
-KrakenBitReader.cs, KrakenBitWriter.cs and the array-entropy helpers) is
-an index-based translation of the decompression reference implementation
-"ooz" by Powzix (kraken.cpp), licensed under the GNU General Public
-License v3.0: <https://github.com/powzix/ooz>.
+KrakenBitWriter.cs and the array-entropy helpers) is an index-based
+translation of the decompression reference implementation "ooz" by
+Powzix (kraken.cpp), licensed under the GNU General Public License v3.0:
+<https://github.com/powzix/ooz>.
 
 GPL-3.0 section 13 expressly permits conveying a combined work that
 links or combines GPL-covered code, which this library relies on for the

@@ -49,6 +49,7 @@ public sealed class ProsperoNpDrmContentInfo
     private const uint FlagSubsequentPatch = 0x40000000;
     private const uint FlagDeltaPatch = 0x41000000;
     private const uint FlagCumulativePatch = 0x60000000;
+    // Finalized flag on the header Flags field (offset 0x04), not the 0x78 content-flags.
     private const uint FlagFinalized = 0x80000000;
 
     /// <summary>

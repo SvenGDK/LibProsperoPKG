@@ -5,7 +5,7 @@
 // container.
 //
 // IMPORTANT: this is a DIFFERENT format from the zlib "PFSC" image handled by
-// LibProsperoPkg.PFS.PfscEncoder/PFSCReader. The two collide on the 4-byte 'PFSC' magic but
+// LibProsperoPkg.PFS.ProsperoPfscEncoder/ProsperoPfscReader. The two collide on the 4-byte 'PFSC' magic but
 // differ in everything else; they are disambiguated by the format-version field at offset 0x04
 // (version 2 or 3; the zlib variant stores 0 there).
 //
@@ -242,7 +242,7 @@ public sealed class ProsperoCompressedPfsFile
     /// container, distinguishing it from the zlib "PFSC" image (which stores 0 in the
     /// version field).
     /// </summary>
-    public static bool IsScePfsCompressed(ReadOnlySpan<byte> data)
+    public static bool IsPfsCompressed(ReadOnlySpan<byte> data)
     {
         if (data.Length < MinHeaderSize)
             return false;

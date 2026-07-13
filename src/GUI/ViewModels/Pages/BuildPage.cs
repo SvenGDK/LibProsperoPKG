@@ -16,10 +16,8 @@ public sealed class BuildPage : ToolPageViewModel
     private readonly TextFieldViewModel _drm;
     private readonly ChoiceFieldViewModel _mode;
     private readonly ChoiceFieldViewModel _format;
-    private readonly ChoiceFieldViewModel _compression;
     private readonly ChoiceFieldViewModel _applicationType;
     private readonly CheckFieldViewModel _generateParam;
-    private readonly CheckFieldViewModel _compressInner;
     private readonly CheckFieldViewModel _signModules;
     private readonly CheckFieldViewModel _licenseFree;
 
@@ -34,12 +32,10 @@ public sealed class BuildPage : ToolPageViewModel
         _version = Text("Version", value: "01.00");
         _passcode = Text("Passcode", watermark: "32 characters (blank uses the all-zero default)");
         _mode = EnumChoice("Mode", ProsperoPackageMode.Application);
-        _format = EnumChoice("Output format", ProsperoOutputFormat.MetadataContainer);
-        _compression = EnumChoice("Inner compression", ProsperoInnerCompression.None);
+        _format = EnumChoice("Output format", ProsperoOutputFormat.DebugImage);
         _applicationType = EnumChoice("Application type", ProsperoApplicationType.PaidStandaloneFullApp);
         _drm = Text("Application DRM type", watermark: "Optional token override (free / standard / freemium)");
         _generateParam = Check("Generate param.json when missing", value: true);
-        _compressInner = Check("Compress inner image");
         _signModules = Check("Sign executable modules", value: true);
         _licenseFree = Check("License-free debug package");
 
@@ -59,10 +55,8 @@ public sealed class BuildPage : ToolPageViewModel
             Passcode = string.IsNullOrWhiteSpace(_passcode.Value) ? new string('0', 32) : _passcode.Value.Trim(),
             Mode = _mode.SelectedAs<ProsperoPackageMode>(),
             OutputFormat = _format.SelectedAs<ProsperoOutputFormat>(),
-            InnerCompression = _compression.SelectedAs<ProsperoInnerCompression>(),
             ApplicationType = _applicationType.SelectedAs<ProsperoApplicationType>(),
             GenerateParamJsonIfMissing = _generateParam.Value,
-            CompressInnerImage = _compressInner.Value,
             FakeSignSelfModules = _signModules.Value,
             LicenseFree = _licenseFree.Value,
         };

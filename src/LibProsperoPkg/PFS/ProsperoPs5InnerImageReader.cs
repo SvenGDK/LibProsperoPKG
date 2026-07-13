@@ -151,8 +151,8 @@ public static class ProsperoPs5InnerImageReader
     /// Parses the reconstructed inner mount's PS5 metadata (superblock + inode table + dirents) and returns
     /// every regular file under <c>uroot</c> with its user-root-relative path, logical offset and size. The
     /// file bytes are <c>mount[LogicalOffset .. LogicalOffset+Size]</c> (already decoded by
-    /// <see cref="ReconstructMount"/>). The PS5 inner inode layout differs from the orbis on-disk inode
-    /// (LogicalOffset@0x60, parent@0x6c), so this does not use <see cref="ProsperoPfsReader"/>.
+    /// <see cref="ReconstructMount"/>). The PS5 inner inode layout (LogicalOffset@0x60, parent@0x6c)
+    /// differs from the layout <see cref="ProsperoPfsReader"/> reads, so this does not use it.
     /// </summary>
     public static IReadOnlyList<ProsperoPs5InnerFileEntry> ReadFileTree(byte[] mount, long metaBase)
     {
@@ -252,10 +252,10 @@ public static class ProsperoPs5InnerImageReader
     // bytes; Kraken blocks decode even (seeded) + odd (seedless, back-referencing even in the same
     // 256K buffer). Unreferenced padding blocks may copy garbage past their real footprint, which is
     // harmless because no inode points into the inter-file padding region.
-    // NOTE: the naps records a per-block shuffle predictor, but the observed nwonly payloads (data files
-    // and the metadata region) are stored UN-shuffled on disk — decoding them yields the final plaintext
-    // directly (applying the de-interleave would corrupt them). If a package with genuinely shuffled
-    // blocks is encountered, reintroduce ProsperoPfsShuffle.Deshuffle here per 64K sub-block.
+    // NOTE: the naps records a per-block shuffle predictor, but the data-first payloads (data files and
+    // the metadata region) are stored UN-shuffled on disk — decoding them yields the final plaintext
+    // directly (applying the de-interleave would corrupt them). A package with genuinely shuffled blocks
+    // would need a per-64K-sub-block de-interleave reintroduced here.
     private static void DecodeBlockInto(byte[] inner, long onDisk, int totalComp, int evenComp,
         int uncompLen, bool kraken, byte[] mount, int mountOff)
     {

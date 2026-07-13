@@ -30,7 +30,7 @@ public sealed class PfsImagePage : ToolPageViewModel
 
     private void BuildLayout(Action<string> log)
     {
-        ProsperoPfsLayoutResult result = ProsperoPfsLayout.BuildFromFolder(_source.Value.Trim(), _layoutOutput.Value.Trim());
+        ProsperoPfsLayoutResult result = ProsperoPfsLayout.BuildFromFolder(_source.Value.Trim(), _layoutOutput.Value.Trim(), options: null, logger: log);
         log("Output: " + result.OutputPath);
         log($"Files: {result.FileCount}, directories: {result.DirectoryCount}");
     }
@@ -41,7 +41,7 @@ public sealed class PfsImagePage : ToolPageViewModel
     private void Decrypt(Action<string> log)
     {
         byte[] ekpfs = ProsperoPfsKeys.DeriveEkpfs(_contentId.Value.Trim(), ParseHelpers.Passcode(_passcode.Value));
-        ProsperoPfsImage.DecryptInPlace(_imagePath.Value.Trim(), new ProsperoPfsImageOptions { Ekpfs = ekpfs });
+        ProsperoPfsImage.DecryptInPlace(_imagePath.Value.Trim(), new ProsperoPfsImageOptions { Ekpfs = ekpfs }, log);
         log("Decrypted: " + _imagePath.Value.Trim());
     }
 }

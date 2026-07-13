@@ -14,7 +14,6 @@ public sealed class HomebrewPage : ToolPageViewModel
     private readonly TextFieldViewModel _version;
     private readonly TextFieldViewModel _passcode;
     private readonly TextFieldViewModel _module;
-    private readonly ChoiceFieldViewModel _compression;
 
     public HomebrewPage(IAppHost host)
         : base(host, "Homebrew package", "Build a package from a homebrew folder.")
@@ -26,7 +25,6 @@ public sealed class HomebrewPage : ToolPageViewModel
         _version = Text("Version", value: "01.00");
         _passcode = Text("Passcode", watermark: "32 characters (blank uses the all-zero default)");
         _module = Text("Main module", watermark: "Defaults to eboot.bin");
-        _compression = EnumChoice("Inner compression", ProsperoInnerCompression.NwonlyDataFirst);
 
         Run("Build", Build, primary: true);
     }
@@ -41,19 +39,20 @@ public sealed class HomebrewPage : ToolPageViewModel
             Passcode = ParseHelpers.Passcode(_passcode.Value),
             Title = _title.Value,
             Version = _version.Value.Trim(),
-            InnerCompression = _compression.SelectedAs<ProsperoInnerCompression>(),
         };
 
         string module = _module.Value.Trim();
         if (module.Length > 0)
             options.ModuleName = module;
 
-        ProsperoHomebrewPackageResult result = ProsperoHomebrewPackager.Package(options);
+        ProsperoHomebrewPackageResult result = ProsperoHomebrewPackager.Package(options, log);
         log("Output: " + result.OutputPath);
 
         var readiness = result.LaunchReadiness;
         log($"Launch ready: {(readiness.IsLaunchReady ? "yes" : "no")} (main module={readiness.HasEboot}, param.json={readiness.HasParamJson}, modules={readiness.Modules.Count}, issues={readiness.Issues.Count})");
         foreach (string issue in readiness.Issues)
             log("issue: " + issue);
+        foreach (string warning in result.Warnings)
+            log("warning: " + warning);
     }
 }

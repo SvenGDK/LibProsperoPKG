@@ -52,6 +52,9 @@ public class ProsperoCntWriter : Util.WriterBase
         Write(hdr.body_offset);
         s.Position = 0x28;
         Write(hdr.body_size);
+        // 0x30 (u64 BE): mandatory content size — the byte offset of the imagedigs entry (= size of the
+        // mandatory-to-install region). Read by the installer's pre-allocation transfer; a zero value
+        // is rejected.
         s.Position = 0x30;
         Write(hdr.mandatory_size);
         s.Position = 0x40;
@@ -119,5 +122,27 @@ public class ProsperoCntWriter : Util.WriterBase
         Write(hdr.pfs_split_size_nth_0);
         s.Position = 0x488;
         Write(hdr.pfs_split_size_nth_1);
+
+        // 0x4A0: outer-PFS AES-XTS crypt seed (16 raw bytes; mirrors the outer superblock+0x370 seed).
+        s.Position = 0x4A0;
+        Write(hdr.image_seed);
+        // 0x4B0 / 0x4B8: the CNT container's FIH-relative locator in the finalized mount image
+        // (cnt_region_offset + cnt_region_size == package_size). Enumerated by the 0x80b21185 gate.
+        s.Position = 0x4B0;
+        Write(hdr.cnt_region_offset);
+        s.Position = 0x4B8;
+        Write(hdr.cnt_region_size);
+        // 0x510: content-region descriptor — two (offset,size) BE u32 pairs then two 32-byte SHA3-256
+        // region digests (64 bytes) at 0x520-0x560.
+        s.Position = 0x510;
+        Write(hdr.desc_image_key_offset);
+        s.Position = 0x514;
+        Write(hdr.desc_image_key_size);
+        s.Position = 0x518;
+        Write(hdr.desc_mandatory_offset);
+        s.Position = 0x51C;
+        Write(hdr.desc_mandatory_size);
+        s.Position = 0x520;
+        Write(hdr.desc_digest);
     }
 }

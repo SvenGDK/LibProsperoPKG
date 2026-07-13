@@ -57,6 +57,13 @@ public sealed class ProsperoPs5InnerImageResult
     /// <summary>The Kraken-compressed metadata bytes (concatenated 256K blocks).</summary>
     public byte[] CompressedMetadata { get; init; } = Array.Empty<byte>();
 
+    /// <summary>
+    /// Per-256KiB-block chunk table of the compressed metadata region, captured once during assembly so
+    /// the naps generator can read the chunk sizes WITHOUT Kraken-packing the metadata a second time.
+    /// Empty when the metadata is stored raw (no compression).
+    /// </summary>
+    public IReadOnlyList<ProsperoInnerMetaBlockChunk> MetadataBlocks { get; init; } = Array.Empty<ProsperoInnerMetaBlockChunk>();
+
     /// <summary>Logical end of the packed data files (first fidx boundary after the last file).</summary>
     public long DataEndLogical { get; init; }
 
@@ -78,6 +85,10 @@ public readonly struct ProsperoPs5InnerPlacement
     /// <summary>True when stored raw (block-split), false when Kraken-compressed.</summary>
     public bool StoreRaw { get; init; }
 }
+
+/// <summary>One compressed-metadata 256KiB block's chunk sizes (for naps generation).</summary>
+public readonly record struct ProsperoInnerMetaBlockChunk(
+    int CompressedSize, int UncompressedSize, bool IsMultiChunk, int FirstChunkCompressedSize);
 
 /// <summary>
 /// Builds a PS5 nwonly inner <c>pfs_image.dat</c> from a flat list of files. Handles the two flat-path
@@ -234,12 +245,22 @@ public sealed class ProsperoPs5InnerImageAssembler
             f.LogicalOffset = cursor;
             afidOffsets[f.Afid] = cursor;
             cursor += f.Data.Length;
-            f.StoreRaw = ShouldStoreRaw(f);
+            // Keystone and executable modules are stored raw; every other file is Kraken-compressed and
+            // packed unless the compressed result does not save at least the store threshold. Compress once
+            // and reuse it so the data-region geometry and the final image share a single compression pass.
+            if (IsKeystone(f.FullPath) || IsExecutableModule(f.Data))
+            {
+                f.StoreRaw = true;
+                f.OnDiskData = f.Data;
+            }
+            else
+            {
+                byte[] comp = ProsperoPs5InnerImageBuilder.CompressPayload(f.Data, storeRaw: false);
+                f.StoreRaw = comp.Length >= f.Data.Length; // CompressPayload returns raw when it does not help
+                f.OnDiskData = f.StoreRaw ? f.Data : comp;
+            }
             f.SceSys = f.FullPath.StartsWith("/sce_sys/", StringComparison.Ordinal);
             f.WholeBlockRaw = IsKeystone(f.FullPath);
-            // Cache the on-disk bytes now (raw, or the Kraken payload) so the data-region geometry and the
-            // final image share one compression pass.
-            f.OnDiskData = f.StoreRaw ? f.Data : ProsperoPs5InnerImageBuilder.CompressPayload(f.Data, storeRaw: false);
         }
 
         // Data-region block count = the on-disk block index of the block-info table (the block-aligned end of
@@ -260,7 +281,7 @@ public sealed class ProsperoPs5InnerImageAssembler
 
         // ---- 7. Assemble the data-first image. ----------------------------------------------------
         byte[] image = BuildImage(afidOrder, metaPlain, out long blockInfoOnDisk, out long metadataOnDisk,
-            out byte[] compressedMeta);
+            out byte[] compressedMeta, out var metaBlocks);
 
         long metaBaseLogical = ndblock * ProsperoPs5InnerImageBuilder.BlockSize - metaPlain.Length;
         long dataEndLogical = afidOrder.Count == 0 ? 0
@@ -285,6 +306,7 @@ public sealed class ProsperoPs5InnerImageAssembler
             BlockInfoOnDiskOffset = blockInfoOnDisk,
             MetadataOnDiskOffset = metadataOnDisk,
             CompressedMetadata = compressedMeta,
+            MetadataBlocks = metaBlocks,
             DataEndLogical = dataEndLogical,
             MetaBaseLogical = metaBaseLogical,
         };
@@ -369,16 +391,6 @@ public sealed class ProsperoPs5InnerImageAssembler
         if (data.Length < 4) return false;
         uint magic = (uint)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
         return magic is 0x1D3D154F or 0xEEF51454 or 0x464C457F;
-    }
-
-    private static bool ShouldStoreRaw(FileNode f)
-    {
-        // The DRM keystone and every executable module are stored raw. Other files (app data assets) are
-        // Kraken-compressed and packed, unless the Kraken result does not save at least the format store
-        // threshold, in which case they are stored raw too.
-        if (IsKeystone(f.FullPath) || IsExecutableModule(f.Data)) return true;
-        byte[] comp = ProsperoPs5InnerImageBuilder.CompressPayload(f.Data, storeRaw: false);
-        return comp.Length >= f.Data.Length; // CompressPayload already returns raw when it doesn't help
     }
 
     // ---- Dirents -----------------------------------------------------------------------------------
@@ -633,7 +645,8 @@ public sealed class ProsperoPs5InnerImageAssembler
     }
 
     private byte[] BuildImage(List<FileNode> afidOrder, byte[] metaPlain,
-        out long blockInfoOnDisk, out long metadataOnDisk, out byte[] compressedMeta)
+        out long blockInfoOnDisk, out long metadataOnDisk, out byte[] compressedMeta,
+        out IReadOnlyList<ProsperoInnerMetaBlockChunk> metaBlocks)
     {
         const int BLK = ProsperoPs5InnerImageBuilder.BlockSize; // 0x10000
         static long AlignUp(long v, long a) => (v + a - 1) & ~(a - 1);
@@ -683,7 +696,12 @@ public sealed class ProsperoPs5InnerImageAssembler
         pos += blockInfo.Length;
         payloads.Add(new ProsperoPs5InnerPayload { Data = blockInfo, StoreRaw = true, BlockAligned = true });
 
-        compressedMeta = ProsperoPs5InnerImageBuilder.CompressPayload(metaPlain, storeRaw: false);
+        compressedMeta = ProsperoPs5InnerImageBuilder.CompressPayload(metaPlain, storeRaw: false, out var metaPf);
+        // Capture the per-256KiB-block chunk table so the naps generator reuses it (no second Kraken pass).
+        metaBlocks = metaPf is null
+            ? Array.Empty<ProsperoInnerMetaBlockChunk>()
+            : metaPf.Blocks.Select(b => new ProsperoInnerMetaBlockChunk(
+                b.CompressedSize, b.UncompressedSize, b.IsMultiChunk, b.FirstChunkCompressedSize)).ToList();
         pos = AlignUp(pos, BLK);
         metadataOnDisk = pos;
         payloads.Add(new ProsperoPs5InnerPayload

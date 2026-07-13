@@ -25,6 +25,11 @@ public sealed class AsyncRelayCommand(Func<Task> execute, Func<bool>? canExecute
         {
             await _execute();
         }
+        catch
+        {
+            // A faulting command delegate must not escape as an unhandled async-void exception,
+            // which would tear down the application. The running state is still reset below.
+        }
         finally
         {
             _running = false;

@@ -68,8 +68,8 @@
 // content/header/system/playgo digests: content/header are SHA3 of specific CNT-header sub-slices, and
 // system/playgo are SHA3 of a concatenation of per-entry digests — none is a single block or file. The
 // structured preimages above are computed directly from the plaintext CNT header regions and entry
-// payloads. The only FIH slot that is best-effort is 0xB0 (a nested-image-content hash); a full
-// from-scratch build cannot match a specific independently encoded input when compressed sizes differ
+// payloads. The only FIH slot that is best-effort is 0xB0 (a nested-image-content hash); an
+// independently built image cannot match a specific separately encoded input when compressed sizes differ
 // (different pfs_image ⇒ different superblock ⇒ different game/content/header/package digests). The
 // formulas here are exact and self-consistent.
 

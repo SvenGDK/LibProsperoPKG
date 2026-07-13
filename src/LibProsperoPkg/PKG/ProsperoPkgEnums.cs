@@ -78,10 +78,9 @@ public static class ProsperoPkgLayout
 
     /// <summary>
     /// FIH header offset of the inner mount's data-region block count (little-endian u64) — the metaBase
-    /// block index = MetaBaseLogical / <see cref="FihHeaderRegionSize"/>. The console's DbgInstall transfer
-    /// reads this to size the inner mount's data region during pre-allocation; a zero value trips the
-    /// transfer with ret 0x80b21171 ("transfer failed"). This value must be nonzero for package
-    /// types 0x14001 and 0x14004.
+    /// block index = MetaBaseLogical / <see cref="FihHeaderRegionSize"/>. The installer's transfer reads
+    /// this to size the inner mount's data region during pre-allocation; a zero value is rejected. This
+    /// value must be nonzero for package types 0x14001 and 0x14004.
     /// </summary>
     public const int FihDataRegionBlockCountField = 0x50;
 
@@ -148,16 +147,18 @@ public enum ProsperoEntryId : uint
     EntryNames = 0x0200,
     LicenseDat = 0x0400,
     LicenseInfo = 0x0401,
-    ParamJson = 0x1000,
-    ParamSfo = 0x1001,
-    PlaygoChunkDat = 0x1300,
-    PlaygoChunkSha = 0x1301,
-    PlaygoManifestXml = 0x1302,
+    Imagedigs = 0x040A,
+    ParamSfo = 0x1000,
+    PlaygoChunkDat = 0x1001,
+    PlaygoChunkSha = 0x1002,
+    PlaygoManifestXml = 0x1003,
     Icon0Png = 0x1200,
     Pic0Png = 0x1220,
     Snd0At9 = 0x1240,
     Icon0Dds = 0x1280,
     Pic0Dds = 0x12A0,
     Pic1Dds = 0x12C0,
-    Pic2Dds = 0x2060,
+    ParamJson = 0x2000,
+    PlaygoHashTable = 0x2010,
+    PlaygoFicm = 0x2011,
 }

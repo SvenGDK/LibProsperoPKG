@@ -14,8 +14,8 @@ using System;
 namespace LibProsperoPkg;
 
 /// <summary>
-/// The PS5 application type. The numeric values are the codes carried by the gp5 <c>app_type</c>
-/// attribute and the param.sfo <c>APP_TYPE</c> key.
+/// The PS5 application type. The numeric values are internal enum codes mapped onto the
+/// <c>sce_sys/param.json</c> <c>applicationDrmType</c> bucket the builder writes.
 /// </summary>
 public enum ProsperoApplicationType
 {
@@ -25,7 +25,7 @@ public enum ProsperoApplicationType
     /// <summary>A full, paid standalone application (code <c>1</c>, "Paid Standalone Full App").</summary>
     PaidStandaloneFullApp = 1,
 
-    /// <summary>An upgradable application (code <c>2</c>, "Upgradable App"), e.g. disc-to-digital / PS3 key disc.</summary>
+    /// <summary>An upgradable application (code <c>2</c>, "Upgradable App").</summary>
     UpgradableApp = 2,
 
     /// <summary>A demo application (code <c>3</c>, "Demo App").</summary>

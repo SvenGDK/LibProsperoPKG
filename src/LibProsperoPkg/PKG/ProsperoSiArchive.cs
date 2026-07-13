@@ -380,7 +380,24 @@ public static class ProsperoSiArchive
         if (innerSize >= ProsperoNapsMeta.PfsBlockSize && mountImage.Length >= 0x10000)
         {
             var contentFiles = CollectContentFiles(pfsImageXml.NestedPfsTree);
-            byte[] blob = ProsperoNapsMeta.BuildMeta18(innerSize, mountImage, contentFiles);
+            // Data-first path: NestedPfsTree is null (only NestedInner is set), so the tree walk above yields
+            // an empty list and naps_meta_18's file/fstr table would be empty — which makes the installer sum
+            // a zero content size and reject the package at the geometry gate (0x80b21185). Recover the
+            // content files from the assembled inner image instead.
+            if (contentFiles.Count == 0 && pfsImageXml.NestedInner is { } nestedInner)
+            {
+                var innerFiles = CollectContentFilesFromInner(nestedInner).ToList();
+                // The file table ends with a "*PFSmetadata" pseudo-entry sized to the outer PFS image region
+                // (PfsImageSize = the block-aligned mount-image the installer pre-allocates as the PlayGo
+                // Chunk). The geometry gate reads that region size as package_size; without this entry the
+                // sum is 0 / unaligned and the install fails.
+                innerFiles.Add(("*PFSmetadata", pfsImageXml.PfsImageSize));
+                contentFiles = innerFiles;
+            }
+            // On the nwonly path pass the assembled inner image so BuildMeta18 emits ibcl/i2ob/i2op/ihsh
+            // and the *PFSmetadata file record over the compressed inner-image NAPS block map (the fix for
+            // the 0x80b21185 geometry gate). Legacy inners pass null and keep the outer-block behavior.
+            byte[] blob = ProsperoNapsMeta.BuildMeta18(innerSize, mountImage, contentFiles, pfsImageXml.NestedInner);
             if (blob.Length > 0)
                 napsMeta18 = blob;
         }
@@ -425,23 +442,134 @@ public static class ProsperoSiArchive
     }
 
     /// <summary>
+    /// Enumerates the content files of a nwonly image straight from the assembled inner-image node list
+    /// (used when <see cref="ProsperoPfsImageXmlOptions.NestedPfsTree"/> is null). Real content files carry
+    /// <c>ParentInode &gt;= 0</c>; the super-root's flat-path tables (<c>ParentInode == -1</c>) are internal
+    /// and excluded. Ordered by afid so the <c>naps_meta_18</c> file/fstr records follow the per-file index
+    /// the mount assigns; each node's <c>FullPath</c> (e.g. <c>/sce_sys/keystone</c>) is made root-relative.
+    /// </summary>
+    private static IReadOnlyList<(string Path, long Size)> CollectContentFilesFromInner(
+        LibProsperoPkg.PFS.ProsperoPs5InnerImageResult inner)
+    {
+        var byInode = new Dictionary<uint, LibProsperoPkg.PFS.ProsperoPs5MetaNode>();
+        foreach (var node in inner.Nodes)
+            byInode[node.Inode] = node;
+
+        // Reconstruct the uroot-relative path of a content file: walk up parent inodes prepending each
+        // directory name, stopping when the parent is the mount root (uroot) — a super-root direct child
+        // with ParentInode == -1. (The node's FullPath field is not populated on the nwonly path.)
+        string PathOf(LibProsperoPkg.PFS.ProsperoPs5MetaNode file)
+        {
+            var parts = new List<string> { file.Name };
+            var cur = file;
+            while (cur.ParentInode >= 0 && byInode.TryGetValue((uint)cur.ParentInode, out var parent))
+            {
+                if (parent.ParentInode == -1) break;
+                parts.Insert(0, parent.Name);
+                cur = parent;
+            }
+            return string.Join('/', parts);
+        }
+
+        return inner.Nodes
+            .Where(n => !n.IsDirectory && n.ParentInode >= 0)
+            .OrderBy(n => n.Afid)
+            .Select(n => (Path: PathOf(n), Size: n.Size))
+            .ToList();
+    }
+
+    /// <summary>
     /// Serialises <paramref name="members"/> into a ZIP using <see cref="CompressionLevel.NoCompression"/>
     /// (the SI uses STORED entries) and returns the raw segment bytes.
     /// </summary>
     public static byte[] WriteZip(IReadOnlyList<ProsperoSiMember> members)
     {
         ArgumentNullException.ThrowIfNull(members);
+
+        // Custom minimal ZIP writer that produces the exact SI framing the SI walker requires (all members
+        // STORED, no extra fields, central-directory "version made by" = 0, deterministic DOS date/time).
+        // .NET's ZipArchive emits `version made by` = 0x0014 and its own timestamps, which diverge from
+        // the required SI ZIP layout; the console's SI walker depends on these exact fields, so this writer
+        // emits the layout field-for-field. Paths use forward slashes and the exact member set/order the caller gives.
+        const ushort VersionNeeded = 20;   // 2.0 (STORED)
+        const ushort DosTime = 0;          // deterministic; the walker does not inspect the timestamp.
+        const ushort DosDate = 0x0021;     // 1980-01-01 (minimal valid DOS date).
+
         using var ms = new MemoryStream();
-        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        using var w = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
+        var local = new (uint Crc, int Size, int NameLen, long Offset)[members.Count];
+
+        for (int i = 0; i < members.Count; i++)
         {
-            foreach (ProsperoSiMember m in members)
-            {
-                ZipArchiveEntry entry = zip.CreateEntry(m.Path, CompressionLevel.NoCompression);
-                using Stream es = entry.Open();
-                es.Write(m.Content, 0, m.Content.Length);
-            }
+            ProsperoSiMember m = members[i];
+            byte[] name = Encoding.ASCII.GetBytes(m.Path);
+            uint crc = ZipCrc32(m.Content);
+            long off = ms.Position;
+            local[i] = (crc, m.Content.Length, name.Length, off);
+
+            w.Write((uint)0x04034b50);          // local file header signature
+            w.Write(VersionNeeded);
+            w.Write((ushort)0);                 // general purpose flag
+            w.Write((ushort)0);                 // method = stored
+            w.Write(DosTime);
+            w.Write(DosDate);
+            w.Write(crc);
+            w.Write((uint)m.Content.Length);    // compressed size (== uncompressed for STORED)
+            w.Write((uint)m.Content.Length);    // uncompressed size
+            w.Write((ushort)name.Length);
+            w.Write((ushort)0);                 // extra field length
+            w.Write(name);
+            w.Write(m.Content);
         }
+
+        long cdStart = ms.Position;
+        for (int i = 0; i < members.Count; i++)
+        {
+            byte[] name = Encoding.ASCII.GetBytes(members[i].Path);
+            w.Write((uint)0x02014b50);          // central directory header signature
+            w.Write((ushort)0);                 // version made by = 0 (required layout; .NET writes 0x0014)
+            w.Write(VersionNeeded);
+            w.Write((ushort)0);                 // general purpose flag
+            w.Write((ushort)0);                 // method = stored
+            w.Write(DosTime);
+            w.Write(DosDate);
+            w.Write(local[i].Crc);
+            w.Write((uint)local[i].Size);       // compressed size
+            w.Write((uint)local[i].Size);       // uncompressed size
+            w.Write((ushort)name.Length);
+            w.Write((ushort)0);                 // extra field length
+            w.Write((ushort)0);                 // comment length
+            w.Write((ushort)0);                 // disk number start
+            w.Write((ushort)0);                 // internal attributes
+            w.Write((uint)0);                   // external attributes
+            w.Write((uint)local[i].Offset);     // relative offset of local header
+            w.Write(name);
+        }
+        long cdSize = ms.Position - cdStart;
+
+        w.Write((uint)0x06054b50);              // end of central directory signature
+        w.Write((ushort)0);                     // disk number
+        w.Write((ushort)0);                     // disk with central directory
+        w.Write((ushort)members.Count);         // entries on this disk
+        w.Write((ushort)members.Count);         // total entries
+        w.Write((uint)cdSize);
+        w.Write((uint)cdStart);
+        w.Write((ushort)0);                     // comment length
+        w.Flush();
         return ms.ToArray();
+    }
+
+    /// <summary>Standard ZIP CRC-32 (reflected polynomial 0xEDB88320) over <paramref name="data"/>.</summary>
+    private static uint ZipCrc32(ReadOnlySpan<byte> data)
+    {
+        uint crc = 0xFFFFFFFFu;
+        foreach (byte b in data)
+        {
+            crc ^= b;
+            for (int k = 0; k < 8; k++)
+                crc = (crc >> 1) ^ (0xEDB88320u & (uint)(-(int)(crc & 1)));
+        }
+        return crc ^ 0xFFFFFFFFu;
     }
 
     /// <summary>
@@ -568,7 +696,7 @@ public static class ProsperoSiArchive
                 sb.Append($"    <entry offset=\"{Hex8(e.Offset)}\" size=\"{Hex8(e.Size)}\" name=\"{e.Name}\"/>\n");
             sb.Append("  </entries>\n");
         }
-        AppendStageB(sb, options);
+        AppendIntrospectionSections(sb, options);
         sb.Append("</package-configuration>\n");
         return sb.ToString();
     }
@@ -606,7 +734,7 @@ public static class ProsperoSiArchive
     /// <see cref="ProsperoPfsImageXmlOptions.ChunkInfo"/>, <see cref="ProsperoPfsImageXmlOptions.OuterPfsTree"/>
     /// and <see cref="ProsperoPfsImageXmlOptions.NestedPfsTree"/> are supplied.
     /// </summary>
-    private static void AppendStageB(StringBuilder sb, ProsperoPfsImageXmlOptions options)
+    private static void AppendIntrospectionSections(StringBuilder sb, ProsperoPfsImageXmlOptions options)
     {
         if (options.ChunkInfo is { } chunk)
             AppendChunkInfo(sb, options.ContentId, chunk);

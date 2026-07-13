@@ -217,8 +217,8 @@ public static class ProsperoPlayGo
         HashTablePrefix.CopyTo(s[0x28..]);                                               // 16-byte const prefix
         for (int i = 0; i < chunkCount; i++)
         {
-            // The observed debug profile baked these constants for chunk indices 0..4; for the rare
-            // higher counts repeat the last known constant (deterministic, self-consistent).
+            // These constants cover chunk indices 0..4; for the rare higher counts repeat the last
+            // known constant (deterministic, self-consistent).
             byte[] entry = HashTableEntries[Math.Min(i, HashTableEntries.Length - 1)];
             entry.CopyTo(s[(HashTableTableOffset + i * HashTableEntrySize)..]);
         }

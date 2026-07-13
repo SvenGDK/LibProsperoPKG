@@ -24,14 +24,14 @@ The primary entry point.
 | `VolumeTypeForMode(mode)` | Map a `ProsperoPackageMode` to the GP5 `Gp5VolumeType`. |
 | `ProsperoVolumeTypeForMode(mode)` | Map a `ProsperoPackageMode` to the container `ProsperoVolumeType`. |
 | `IsDlcMode(mode)` | Report whether a mode is additional-content. |
-| `KeysAvailable` | Reports whether publishing key material is available. |
+| `KeysAvailable` | Reports whether the built-in signing key material is available. |
 
 ### Supporting types
 
 - **`ProsperoBuildOptions`** — the build description: `Mode`, `OutputFormat`, `SourceFolder`,
   `OutputFolder`, `ContentId`, `Passcode`, `Title`, `TitleId`, `Version`,
-  `GenerateParamJsonIfMissing`, `CompressInnerImage`, `InnerCompression`, `ApplicationType`,
-  `ApplicationDrmType`, `ContentBadgeType`, `FakeSignSelfModules`, `FselfOptions`, `LicenseFree`.
+  `GenerateParamJsonIfMissing`, `ApplicationType`, `ApplicationDrmType`, `ContentBadgeType`,
+  `FakeSignSelfModules`, `FselfOptions`, `LicenseFree`.
 - **`ProsperoApplicationType`** — the application type: `NotSpecified`,
   `PaidStandaloneFullApp`, `UpgradableApp`, `DemoApp`, `FreemiumApp`. `ProsperoApplicationTypes`
   maps it to the generated `param.json` `applicationDrmType` (`free` / `standard` / `freemium`)
@@ -44,11 +44,11 @@ The primary entry point.
 - **`ProsperoOutputFormat`** — `MetadataContainer` (`\x7FCNT` only, not installable) or
   `DebugImage` (`\x7FFIH`, the default, installable on a debug-mode console).
 - **`InnerImageForm`** — `Plaintext`, `Encrypted`, `Compressed` (zlib PFSC),
-  `KrakenCompressed` (PFSv3 Kraken, the `nwonly` codec).
-- **`ProsperoInnerCompression`** (in `LibProsperoPkg.PKG`) — `None`, `Zlib` (installable inner
-  image), `Kraken` (`nwonly` inner image). Set on `ProsperoBuildOptions.InnerCompression`
-  / `ProsperoPkgBuildProperties.InnerCompression`; takes precedence over the legacy
-  `CompressInnerImage` bool when non-`None`.
+  `KrakenCompressed` (PFSv3 Kraken). Selects how `BuildInnerImage` renders a laid-out inner image.
+
+The package build path always stores the inner `pfs_image.dat` as the data-first image: a raw
+concatenation of per-file payloads (raw or headerless Kraken) with the geometry described by a
+generated `naps_pkg_layout.dat`.
 
 ### `ProsperoBackupConverter` (static)
 
@@ -61,8 +61,8 @@ or a console secret.
 
 - **`ProsperoBackupConversionOptions`** — `BackupFolder`, `OutputFolder`, `DecryptedSubfolder`
   (default `decrypted`), `ContentId`, `Passcode`, `Version`, `StagingFolder`, `KeepStaging`,
-  `UseEmbeddedRightSprx`, `CompressInnerImage`, `InnerCompression`, `FselfOptions`. Content id and
-  version fall back to the backup's `param.json` when not supplied.
+  `UseEmbeddedRightSprx`, `FselfOptions`. Content id and version fall back to the backup's
+  `param.json` when not supplied.
 - **`ProsperoBackupConversionResult`** — `OutputPath`, `DebugLicense`, `SubstitutedModules`,
   `PlaintextModules`, `UnresolvedModules`, `Warnings`, `LaunchReadiness`, `StagingFolder`.
   `LaunchReadiness` is a `ProsperoLaunchReadinessReport` (below) over the assembled tree.
@@ -80,8 +80,7 @@ key derives from the content id and passcode.
 
 - **`ProsperoHomebrewPackageOptions`** — `HomebrewFolder`, `OutputFolder` (both required), `ModuleName`
   (default `eboot.bin`), `ContentId`, `Passcode`, `Title`, `Version`, `StagingFolder`, `KeepStaging`,
-  `CompressInnerImage`, `InnerCompression`, `FselfOptions`. Content id and version fall back to the
-  homebrew's `param.json` when not supplied.
+  `FselfOptions`. Content id and version fall back to the homebrew's `param.json` when not supplied.
 - **`ProsperoHomebrewPackageResult`** — `OutputPath`, `DebugLicense` (`RequiresRif` always false),
   `ModulePath` (`eboot.bin`), `LaunchReadiness`, `Warnings`, `StagingFolder`.
 
@@ -89,7 +88,7 @@ key derives from the content id and passcode.
 
 Inspects an assembled application root and reports whether it meets the debug-launch conditions:
 every executable module is a plaintext module the loader accepts, `eboot.bin` is present, and the
-metadata is a `param.json` rather than a PS4 `param.sfo`. It inspects only — it never signs, mounts,
+metadata is a `param.json` rather than the older `param.sfo`. It inspects only — it never signs, mounts,
 or launches.
 
 | Member | Purpose |
@@ -113,13 +112,12 @@ or launches.
 | `ProsperoPkgReader` | `DetectType(path/stream)` and `Read(path/stream)` for existing packages. |
 | `ProsperoCntWriter` | Low-level `\x7FCNT` container writer over the `ProsperoCnt` model (`ProsperoCntEntry`, `ProsperoCntHeader`, `ProsperoCntEntryNames`, entry-id enums). |
 | `ProsperoFihBuilder` | Wrap a `\x7FCNT` into a finalized `\x7FFIH` image. `BuildFromCnt(cntPath, fihOutputPath, ProsperoFihVariant)`. |
-| `ProsperoPkgSigner` | RSA-3072 metadata signing and EKPFS/PFS key derivation. |
-| `ProsperoNapsLayout` | PS5 `naps_pkg_layout.dat` decoder and serializer for the `nwonly` streaming layout. `Parse`/`DecodeHeader` (returning a `NapsLayoutDocument` over the `Naps*` record types), `BuildLayout` (decoder and serializer are mutually consistent, including zero padding), the per-section `Encode*`/`Decode*` helpers, `SectionMap`. Record values are data-dependent on the inner-image compression run. |
+| `ProsperoPkgSigner` | RSA-3072 metadata signing and EKPFS derivation. |
+| `ProsperoNapsLayout` | PS5 `naps_pkg_layout.dat` decoder and serializer for the `nwonly` streaming layout. `Parse`/`DecodeHeader` (returning a `NapsLayoutDocument` over the `Naps*` record types), `BuildLayout` (decoder and serializer are mutually consistent, including zero padding), the per-section `Encode*`/`Decode*` helpers, `SectionMap`. Record values are data-dependent on the inner-image compression run. The data-first build path generates a valid layout for its assembled inner image through `ProsperoNwonlyNapsGenerator`. |
 | `ProsperoImageDigests` | PS5 finalized-image / CNT digest algorithms (single primitive: **SHA3-256**). Computes digests for all documented formulas. `ComputeSblockDigest`/`ComputeGameDigest` (`SHA3-256(plaintext outer superblock, 0x10000)` = FIH `0x30/0x70/0xD0`), `ComputeFixedInfoDigest` (`SHA3-256(FIH block)`), `ComputeBodyDigest` (`SHA3-256(CNT body)`), `ComputeEntryDigest` + `BuildEntryDigestTable` (CNT entry `0x0001`; self-slot zeroed), `ComputePackageDigest` (`SHA3-256(CNT[0:0xFE0])` = CNT `+0xFE0` = `<package-digest>`), `ComputeCntHeaderRollupDigest` (`SHA3-256(CNT[off:off+size])` = CNT `+0x100`), `ComputeContentDigest` / `ComputeHeaderDigest` / `ComputeConcatDigest` / `ForceFihRelativeImageOffset` (the GeneralDigests block — content/header/system/playgo/target, wired via `ProsperoPkgBuilder.ComputeGeneralDigests`), `LocateSuperblock`/`ComputeSblockDigestFromImage` (scan `version 2` + magic `0x0b2a3301`), `Sha3_256`. The FIH `0xB0` nested-image-content slot is computed from the uncompressed inner PFS image during finalization. |
 | `ProsperoDdsEncoder` | Re-encode `sce_sys` icon/picture images to BC7 DDS. |
-| `ProsperoInnerCompression` | Inner-image codec selector: `None`, `Zlib`, `Kraken`. Set on `ProsperoBuildOptions.InnerCompression` / `ProsperoPkgBuildProperties.InnerCompression`. |
 | `ProsperoFihVariant` | Finalized-image variant for `ProsperoFihBuilder`: `Debug`, `Official`. |
-| `ProsperoNapsMeta` | Build the `naps_meta_300` install-metadata descriptor from the inner-image geometry. `BuildMeta300`, `BuildMeta300FromInnerImageSize`. |
+| `ProsperoNapsMeta` | Build the `naps_meta_*` install-metadata descriptors. `BuildMeta300` / `BuildMeta300FromInnerImageSize` produce the 48-byte `naps_meta_300/301/302/308` descriptor from the inner-image geometry; `BuildMeta18` builds the AES-128-XTS TLV metric blob (`naps_meta_18.dat`) over the finalized image and its content-file table. |
 | `ProsperoSystemFiles` | Validate backend-signed `sce_sys` files before packing. `Validate`, `ValidateNpbind`, `ValidateNptitle`, `ValidateLicenseDat`, `ValidateLicenseInfo`. |
 | `ProsperoSiArchive` | Build the trailing `sce_suppl` install archive: `pfsimage.xml`, the `naps_meta_*` descriptors, and the copied PlayGo files. `BuildDebugSiSegment`, `BuildPfsImageXml`, `WriteZip`, with `ProsperoSiMember` and `ProsperoPfsImageXmlOptions`. |
 | `ProsperoChunkInfoModel` | Chunk/scenario model threaded from the GP5 project into the install archive. |
@@ -187,13 +185,12 @@ The PS5 compression-file (`PFSC` v3) codec used by the `nwonly` path.
 
 | Type | Purpose |
 |---|---|
-| `ProsperoCompressedPfsImage` | Public façade for the inner-image use of the codec — packs/unpacks a whole PFS image as a self-describing `PFSC` v3 container. `Pack`/`PackStored`/`PackFile`, `Unpack`/`UnpackFile`, detection helpers, `ValidateRoundTrip`; returns `ProsperoCompressedPfsImageResult` (raw/encoded sizes, block + stored counts, gain %). The codec the builder's `ProsperoInnerCompression.Kraken` option uses. |
+| `ProsperoCompressedPfsImage` | Public façade for the inner-image use of the codec — packs/unpacks a whole PFS image as a self-describing `PFSC` v3 container. `Pack`/`PackStored`/`PackFile`, `Unpack`/`UnpackFile`, detection helpers, `ValidateRoundTrip`; returns `ProsperoCompressedPfsImageResult` (raw/encoded sizes, block + stored counts, gain %). Used to compress the inner metadata block and by the standalone PFSC pack/unpack tool. |
 | `ProsperoCompressedPfsFileWriter` | Produce a PFSv3 `PFSC` container. `WriteCompressed(payload, level, blockSize, useHuffmanArrays=true)` (Kraken with default-on Huffman entropy arrays, per-block stored fallback) / `WriteStored(payload)`. |
 | `ProsperoCompressedPfsFile` | Parse a PFSv3 `PFSC` container. `Parse`, detection helpers, `VerifyFileDigest`, and `Decompress()` for a full decode. |
 | `ProsperoPfsDigest` | SHA3-256 helpers for the per-block hashes and the `@0x28` file digest. |
-| `ProsperoPfsShuffle` | The pre-compression de-interleave (shuffle/deshuffle) transforms. `ProsperoPfsShufflePattern` names each pattern. |
-| `ProsperoPfsCompressionConstants` | Block size, level and format constants for the codec. |
-| `ProsperoCompressionAlgorithm` / `ProsperoPfsCompressionFormat` | The codec (`QuickZ`, `Zlib`, `Kraken`) and container-format version (`Version0`..`Version3`) enums. |
+| `ProsperoPfsCompressionConstants` | The Kraken window-bits constant for the codec. |
+| `ProsperoCompressionAlgorithm` / `ProsperoPfsCompressionFormat` | The codec (`QuickZ`, `Zlib`, `Kraken`) and container-format version (`Version0`..`Version3`) enums. `ProsperoPfsShufflePattern` names the pre-compression shuffle patterns. |
 
 The newLZ (Kraken) decoder and the Huffman entropy-array encoder are internal implementation
 details of these types and are not part of the public surface. `PfsBlock` and
@@ -213,9 +210,9 @@ details of these types and are not part of the public surface. `PfsBlock` and
 
 ---
 
-## `LibProsperoPkg.Keys` — publishing key access
+## `LibProsperoPkg.Keys` — signing key access
 
-- **`ProsperoKeys`** — exposes the wired-in PS5 publishing key material (`IsAvailable` and the
+- **`ProsperoKeys`** — exposes the wired-in PS5 signing key material (`IsAvailable` and the
   individual key accessors). Used by the signer and the package builder.
 
 ---
@@ -283,7 +280,7 @@ off-console. `Create` covers the structural / templated path only.
 
 | Type | Purpose |
 |---|---|
-| `ProsperoDiscBackup` (sealed) | Opens a split disc-backup package (`app_0.pkg` + `app_sc.pkg` + …) described by an `app.json` manifest and presents it as one package. `Open(path)`, `OpenPackageStream` / `ReassembleTo(stream/path, progress)`, `ReadPackage`, `ReadContentInfo`, `ComputePackageDigest` / `VerifyPackageDigest`, `ReadChunkCrc` / `VerifyChunkCrcHash` / `VerifyChunkCrcs(out mismatchChunk, progress)`, `FindImageKeyEntry`, `ExtractEntry` / `ExtractEntryBytes`. Props: `Directory`, `Manifest`, `OriginalFileSize`. |
+| `ProsperoDiscBackup` (sealed) | Opens a split disc-backup package (the ordered `app_0` / `app_sc` pieces) described by an `app.json` manifest and presents it as one package. `Open(path)`, `OpenPackageStream` / `ReassembleTo(stream/path, progress)`, `ReadPackage`, `ReadContentInfo`, `ComputePackageDigest` / `VerifyPackageDigest`, `ReadChunkCrc` / `VerifyChunkCrcHash` / `VerifyChunkCrcs(out mismatchChunk, progress)`, `FindImageKeyEntry`, `ExtractEntry` / `ExtractEntryBytes`. Props: `Directory`, `Manifest`, `OriginalFileSize`. |
 | `ProsperoDiscBackupManifest` (sealed) | Parses `app.json`: `NumberOfSplitFiles`, `OriginalFileSize`, `PackageDigest`, the ordered `Pieces` (`ProsperoDiscBackupPiece`: `DiscNumber`, `FileOffset`, `FileSize`, `Url`), `PlaygoChunkCrcHashValue`, `PlaygoChunkCrcUrl`. `Parse(json)`, `Read(path)`. |
 | `ProsperoConcatStream` (sealed) | A read-only, seekable stream that concatenates the piece windows without materializing a temporary file. |
 | `ProsperoPlaygoChunkCrc` (sealed) | Parses the headerless little-endian CRC-32C array (one value per 64 KiB chunk, from `app.crc`). `Parse`, `Read(path)`, `VerifyPackage(stream, out mismatchChunk, progress)`. |
@@ -298,13 +295,12 @@ it is not implemented.
 Building blocks shared across the library. Most consumers use the higher-level types above; these
 are exposed for advanced use.
 
-- **`Crypto`** — SHA-256 / SHA3-256, HMAC-SHA-256, AES-CBC/CFB, RSA-2048, the PFS key-generation
-  primitives (`PfsGenCryptoKey`, `PfsGenEncKey`, `PfsGenSignKey`), `ComputeKeys`, `CreateKeystone`,
-  and `Xor`.
-- **`CryptoKeys`** and **`RSAKeyset`** — the key constants and the RSA key-set model the signer uses.
+- **`Crypto`** — SHA-256 / SHA3-256, HMAC-SHA-256, AES-CBC/CFB, RSA (PKCS#1) key wrapping, the PFS
+  key-generation primitives (`PfsGenCryptoKey`, `PfsGenEncKey`, `PfsGenSignKey`), `ComputeKeys`,
+  `CreateKeystone`, and `Xor`.
+- **`CryptoKeys`** — the key constants the signer and mount-key derivation use.
 - **`ProsperoCrc32C`** — CRC-32C (`Compute`, `Update`).
 - **`XtsBlockTransform`** — AES-XTS sector encrypt/decrypt.
-- **`MersenneTwister`** — the seed generator.
 - Stream helpers: `OffsetStream`, `SubStream`, `StreamReader`, `WriterBase`, and the
   `IMemoryReader` / `IMemoryAccessor` accessors with `MemoryMappedViewAccessor_`.
 

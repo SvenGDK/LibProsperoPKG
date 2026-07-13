@@ -15,8 +15,8 @@ namespace LibProsperoPkg.GP5;
 public static class Gp5Creator
 {
     /// <summary>
-    /// The default directory-exclude mask, so project scaffolding (the .gp5 itself, keystone,
-    /// intermediate caches, …) never ends up inside the image.
+    /// The default directory-exclude mask: directories (e.g. <c>about</c>) that hold project
+    /// scaffolding rather than image content, so they never end up inside the image.
     /// </summary>
     public const string DefaultDirExclude = "about";
 

@@ -50,7 +50,18 @@ public sealed class ProsperoPs5InnerImageBuilder
     /// when compression does not save at least 6.25%, or when <paramref name="storeRaw"/>.
     /// </summary>
     public static byte[] CompressPayload(byte[] raw, bool storeRaw)
+        => CompressPayload(raw, storeRaw, out _);
+
+    /// <summary>
+    /// As <see cref="CompressPayload(byte[], bool)"/>, but also returns the parsed
+    /// <see cref="ProsperoCompressedPfsFile"/> (its per-block chunk table) when the payload is stored
+    /// compressed, so callers that need the block boundaries (e.g. the naps generator) do not have to
+    /// Kraken-pack the same buffer a second time. <paramref name="compressedFile"/> is <see langword="null"/>
+    /// when the payload is stored raw (either <paramref name="storeRaw"/> or the 6.25% keep rule fell back).
+    /// </summary>
+    public static byte[] CompressPayload(byte[] raw, bool storeRaw, out ProsperoCompressedPfsFile? compressedFile)
     {
+        compressedFile = null;
         if (storeRaw) return raw;
         var pf = ProsperoCompressedPfsFile.Parse(ProsperoCompressedPfsImage.Pack(raw, 7, CompressBlockSize));
         using var ms = new MemoryStream();
@@ -60,7 +71,12 @@ public sealed class ProsperoPs5InnerImageBuilder
             ms.Write(d, 0, d.Length);
         }
         byte[] comp = ms.ToArray();
-        return comp.Length <= (int)(((long)raw.Length * 15) >> 4) ? comp : raw;
+        if (comp.Length <= (int)(((long)raw.Length * 15) >> 4))
+        {
+            compressedFile = pf;
+            return comp;
+        }
+        return raw;
     }
 
     /// <summary>

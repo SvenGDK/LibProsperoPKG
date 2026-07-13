@@ -90,10 +90,19 @@ public class ProsperoPfsReader
                 file.SetLength(sz);
                 long pos = 0;
                 var reader = GetView();
-                if (decompress && flags.HasFlag(ProsperoInodeFlags.compressed))
+                // Only PFSC-decode when the payload is actually a PFSC container. The outer-PFS inode
+                // template carries the `compressed` flag even on raw files (e.g. nwonly's
+                // naps_pkg_layout.dat, which is stored raw), so the flag alone is not a reliable signal;
+                // wrapping a raw payload in ProsperoPfscReader would throw "missing PFSC magic".
+                if (decompress && flags.HasFlag(ProsperoInodeFlags.compressed) && size >= 4)
                 {
-                    sz = compressed_size;
-                    reader = new ProsperoPfscReader(reader);
+                    var magic = new byte[4];
+                    reader.Read(0, magic, 0, 4);
+                    if (magic[0] == (byte)'P' && magic[1] == (byte)'F' && magic[2] == (byte)'S' && magic[3] == (byte)'C')
+                    {
+                        sz = compressed_size;
+                        reader = new ProsperoPfscReader(reader);
+                    }
                 }
                 while (sz > 0)
                 {
@@ -310,7 +319,6 @@ public class ProsperoPfsReader
                 blockIndexOffset += sigsPerBlock;
             }
             bool contiguous = true;
-            int last = blocks[0] - 1;
             for (int i = 1; i < blocks.Length; i++)
             {
                 if (blocks[i - 1] + 1 != blocks[i])

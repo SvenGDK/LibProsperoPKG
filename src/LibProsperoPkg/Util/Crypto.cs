@@ -6,7 +6,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -68,91 +67,21 @@ public static class Crypto
     }
 
     /// <summary>
-    /// Encrypts the given hash with the given public key (modulus)
+    /// Encrypts <paramref name="data"/> with an RSA public key — big-endian <paramref name="modulus"/>,
+    /// public exponent 65537 — using EME-PKCS#1 v1.5 (type 2) padding. This is the PS5 CNT key-entry
+    /// wrapping: the ciphertext length equals the modulus length (384 bytes = RSA-3072). The PKCS#1 pad
+    /// is random, so successive calls are not byte-identical, but each decrypts to <paramref name="data"/>
+    /// under the corresponding private key.
     /// </summary>
-    /// <param name="modulus"></param>
-    /// <param name="hash"></param>
-    /// <returns></returns>
-    public static byte[] RSA2048EncryptKey(byte[] modulus, byte[] hash)
+    public static byte[] RsaPkcs1EncryptKey(byte[] modulus, byte[] data)
     {
-        // 1. Seed MT PRNG with hash of key and input hash
-        var buffer = new byte[256 + 32];
-        Buffer.BlockCopy(modulus, 0, buffer, 0, 256);
-        Buffer.BlockCopy(hash, 0, buffer, 256, 32);
-        var final_hash = Sha256(Sha256(buffer));
-        var final_hash_ints = new uint[8];
-        for (int i = 0; i < 32; i += 4)
-        {
-            final_hash_ints[i / 4] = ((uint)final_hash[0 + i] << 24) |
-                                      ((uint)final_hash[1 + i] << 16) |
-                                      ((uint)final_hash[2 + i] << 8) |
-                                      ((uint)final_hash[3 + i] << 0);
-        }
-        var mt = new MersenneTwister(final_hash_ints);
-
-        // 2. Pad the RSA input (header hash) using the Mersenne Twister PRNG
-        var sha_source = new MemoryStream(48);
-        var padded_input = new byte[256];
-        padded_input[0] = 0;
-        padded_input[1] = 2;
-        padded_input[223] = 0;
-        Buffer.BlockCopy(hash, 0, padded_input, 224, 32);
-        for (int k = 2; k < 223;)
-        {
-            sha_source.Position = 0;
-            for (int i = 0; i < 12; i++)
-            {
-                sha_source.WriteUInt32BE(mt.Int32());
-            }
-            var random = Sha256(sha_source);
-            foreach (var r in random)
-            {
-                if (k >= 223)
-                    break;
-                if (r != 0)
-                    padded_input[k++] = r;
-            }
-        }
-
-        // 3. Encrypt the padded input with RSA 2048 (modular exponentiation)
-        return RSA2048Encrypt(padded_input, modulus);
-    }
-
-    /// <summary>
-    /// Encrypts the value with 2048 bit RSA.
-    /// Accepts and returns Big-Endian values
-    /// </summary>
-    /// <param name="value"></param>
-    /// <param name="mod"></param>
-    /// <param name="exp"></param>
-    /// <returns></returns>
-    public static byte[] RSA2048Encrypt(byte[] value, byte[] mod, int exp = 65537)
-    {
-        var message = new BigInteger(value.Reverse().ToArray());
-        var modulus = new BigInteger(mod.Reverse().Concat(new byte[] { 0 }).ToArray());
-        var exponent = new BigInteger(exp);
-        var leResult = BigInteger.ModPow(message, exponent, modulus).ToByteArray().Take(256);
-        return leResult
-          .Concat(Enumerable.Range(0, 256 - leResult.Count()).Select(x => (byte)0))
-          .Reverse()
-          .ToArray();
-    }
-
-    public static byte[] RSA2048Decrypt(byte[] ciphertext, RSAKeyset keyset)
-    {
-        using RSA rsa = RSA.Create();
+        using var rsa = RSA.Create();
         rsa.ImportParameters(new RSAParameters
         {
-            P = keyset.Prime1,
-            Q = keyset.Prime2,
-            Exponent = keyset.PublicExponent,
-            Modulus = keyset.Modulus,
-            DP = keyset.Exponent1,
-            DQ = keyset.Exponent2,
-            InverseQ = keyset.Coefficient,
-            D = keyset.PrivateExponent
+            Modulus = modulus,
+            Exponent = [0x01, 0x00, 0x01],
         });
-        return rsa.Decrypt(ciphertext, RSAEncryptionPadding.Pkcs1);
+        return rsa.Encrypt(data, RSAEncryptionPadding.Pkcs1);
     }
 
     public static int AesCbcCfb128Encrypt(byte[] @out, byte[] @in, int size, byte[] key, byte[] iv)
@@ -169,21 +98,6 @@ public static class Crypto
         Buffer.BlockCopy(tmp, 0, @out, 0, tmp.Length);
         return 0;
     }
-    public static int AesCbcCfb128Decrypt(byte[] @out, byte[] @in, int size, byte[] key, byte[] iv)
-    {
-        using var cipher = CreateCbcAes(key, iv);
-        var tmp = new byte[size];
-        using (var ct_stream = new MemoryStream(@in))
-        using (var pt_stream = new MemoryStream(tmp))
-        using (var dec = cipher.CreateDecryptor(key, iv))
-        using (var s = new CryptoStream(ct_stream, dec, CryptoStreamMode.Read))
-        {
-            s.CopyTo(pt_stream);
-        }
-        Buffer.BlockCopy(tmp, 0, @out, 0, tmp.Length);
-        return 0;
-    }
-
     /// <summary>
     /// Computes the SHA256 hash of the given data.
     /// </summary>
@@ -259,7 +173,7 @@ public static class Crypto
     /// Computes keys for the package.
     /// The key is the result of a SHA256 hash of the concatenation of:
     ///  - The SHA256 hash of the index (4 bytes big-endian)
-    ///  - The SHA256 hash of the Contend ID (36 bytes padded to 48 with nulls)
+    ///  - The SHA256 hash of the Content ID (36 bytes padded to 48 with nulls)
     ///  - The passcode
     /// The EKPFS is Index 1. 
     /// </summary>
@@ -289,24 +203,20 @@ public static class Crypto
         return h(data);
     }
 
-    public static byte[] CreateKeystone(string passcode, ushort version = 2)
+    public static byte[] CreateKeystone(string passcode)
     {
-        // Build the 0x20-byte keystone *header* block (the full keystone file is 0x60 bytes:
-        // header 0x00-0x1F, then the two appended HMAC blocks at 0x20 and 0x40). The header is
-        // the ASCII tag "keystone" (8 bytes), a little-endian uint16 version, the uint16 magic
-        // 0x0001, and zero padding out to 0x20. Keystone version 3 is used for PS5 packages.
+        // Build the 0x20-byte keystone header block (the full keystone file is 0x60 bytes: header
+        // 0x00-0x1F, then the two appended HMAC blocks at 0x20 and 0x40). The header is the ASCII tag
+        // "keystone" (8 bytes), a little-endian uint16 version (3), the uint16 magic 0x0001, and zero
+        // padding out to 0x20.
+        const ushort version = 3;
         var keystoneHeader = new byte[0x20];
         Encoding.ASCII.GetBytes("keystone").CopyTo(keystoneHeader, 0);
         BitConverter.GetBytes(version).CopyTo(keystoneHeader, 8);
         keystoneHeader[10] = 0x01;
 
-        // The HMAC-SHA256 key pair is selected by keystone version; version 3 selects the PS5 pair.
-        var (hmacKey, macData) = version >= 3
-            ? (CryptoKeys.keystone_hmac_key_ps5, CryptoKeys.keystone_mac_data_ps5)
-            : (CryptoKeys.keystone_hmac_key, CryptoKeys.keystone_mac_data);
-
-        var fingerprint = HmacSha256(hmacKey, Encoding.ASCII.GetBytes(passcode));
-        var final = HmacSha256(macData, keystoneHeader.Concat(fingerprint).ToArray());
+        var fingerprint = HmacSha256(CryptoKeys.keystone_hmac_key_ps5, Encoding.ASCII.GetBytes(passcode));
+        var final = HmacSha256(CryptoKeys.keystone_mac_data_ps5, keystoneHeader.Concat(fingerprint).ToArray());
         return keystoneHeader.Concat(fingerprint).Concat(final).ToArray();
     }
 

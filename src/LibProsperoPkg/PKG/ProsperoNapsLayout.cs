@@ -248,7 +248,7 @@ public static class ProsperoNapsLayout
     /// <summary>Stride of a <c>CblockInfo</c> entry (validated: <c>(=9*%lld)</c>).</summary>
     public const int CblockInfoStride = 9;
 
-    // ---- Header (MODEL packing, per analysis3) ----------------------------------------------------
+    // ---- Header (MODEL packing) ------------------------------------------------------------------
 
     /// <summary>
     /// Decode the 16-byte header into section counts. The field names come from the
@@ -302,26 +302,6 @@ public static class ProsperoNapsLayout
         BinaryPrimitives.WriteUInt64LittleEndian(header.AsSpan(0, 8), word0);
         BinaryPrimitives.WriteUInt64LittleEndian(header.AsSpan(8, 8), word1);
         return header;
-    }
-
-    /// <summary>
-    /// Builds a minimal, well-formed layout blob that fits in a single outer block. The debug install
-    /// path does not read this content; it only needs to exist as a distinct outer file so the outer
-    /// image data precedes the superblock. The blob carries a valid header and zeroed sections sized
-    /// by the header counts, and round-trips through <see cref="DecodeHeader"/>/<see cref="SectionMap(NapsLayoutCounts)"/>.
-    /// </summary>
-    /// <param name="alignment">Byte alignment for the trailing zero pad (default <see cref="DefaultAlignment"/>).</param>
-    /// <returns>The serialized layout blob (always &lt;= one block).</returns>
-    public static byte[] BuildMinimalLayout(int alignment = DefaultAlignment)
-    {
-        var counts = new NapsLayoutCounts(
-            NumFiles: 1, CompressionType: 0, NumKeys: 1, NumShufflePatterns: 0,
-            NumUBlocks: 0, NumOuterBlocks: 0, NumCblockInfo: 2);
-        long content = SectionMap(counts).TotalSize;
-        long total = alignment > 1 ? (content + alignment - 1) / alignment * alignment : content;
-        var blob = new byte[total];
-        EncodeHeader(counts).CopyTo(blob.AsSpan());
-        return blob;
     }
 
     // ---- Section map (fixed strides) -----------------------------------------------------------

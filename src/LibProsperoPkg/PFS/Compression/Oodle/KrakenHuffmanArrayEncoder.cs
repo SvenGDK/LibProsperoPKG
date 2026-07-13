@@ -13,8 +13,8 @@
 // transmission-format choice and optimal LZ parse. This encoder provides the decoder-validated
 // foundation for that through an in-process round-trip against the decoder.
 //
-// The bit layout is defined entirely by KrakenDecoder (a GPLv3-licensed translation; see NOTICE).
-// LibProsperoPkg is GPLv3; GPLv3 §13 permits the combination. No external Kraken encoder specification is used.
+// The bit layout is defined entirely by KrakenDecoder (which carries a GPLv3 attribution; see NOTICE).
+// LibProsperoPkg is GPLv3; GPLv3 §13 permits the combination.
 // ---------------------------------------------------------------------------------------------------
 #nullable enable
 using System;

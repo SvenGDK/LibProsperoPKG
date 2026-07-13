@@ -107,23 +107,4 @@ public static class ProsperoPfsCompressionConstants
 {
     /// <summary>Number of sliding-window bits used for Kraken (the only valid value).</summary>
     public const uint KrakenWindowBits = 18;
-
-    /// <summary>
-    /// The default compression level used for PFSv3 containers (<c>"compression level": 7</c>).
-    /// </summary>
-    public const uint DefaultKrakenLevel = 7;
-
-    /// <summary>Lowest (fastest) accepted Kraken level, encoded as an unsigned value.</summary>
-    public const uint KrakenLevelFastest = unchecked((uint)-4);
-
-    /// <summary>Highest accepted Kraken level.</summary>
-    public const uint KrakenLevelMax = 9;
-
-    /// <summary>Returns <c>true</c> when <paramref name="level"/> is an accepted Kraken level.</summary>
-    public static bool IsValidKrakenLevel(uint level)
-        => level <= KrakenLevelMax
-           || level is KrakenLevelFastest
-                    or unchecked((uint)-3)
-                    or unchecked((uint)-2)
-                    or unchecked((uint)-1);
 }

@@ -36,8 +36,6 @@ public class ProsperoPfscReader : IMemoryReader
             throw new ArgumentException("Not a PFSC file: missing PFSC magic");
         if (hdr.Unk4 != 0)
             throw new ArgumentException($"Not a PFSC file: unknown data at 0x4 (expected 0, got {hdr.Unk4})");
-        //if (hdr.Unk8 != 6)
-        //  throw new ArgumentException($"Not a PFSC file: unknown data at 0x8 (expected 6, got {hdr.Unk8})");
         if (hdr.BlockSz != (int)hdr.BlockSz2)
             throw new ArgumentException("Not a PFSC file: block size mismatch");
 

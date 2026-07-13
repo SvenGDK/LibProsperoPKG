@@ -2,11 +2,10 @@
 // Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
-// Kraken (newLZ) bit writer — the exact inverse of KrakenBitReader.
+// Kraken (newLZ) bit writer — the inverse of the decoder's bit reader.
 //
-// The bit-level layout it produces is the public Kraken format; the inverse derivation is an
-// index-based translation of a GPLv3-licensed third-party decompressor (see NOTICE for the
-// attribution). LibProsperoPkg is licensed under the GNU GPLv3 (section 13 permits combining GPLv3 code).
+// The bit-level layout it produces is the Kraken format. Portions carry a GPLv3 attribution; see
+// NOTICE. LibProsperoPkg is licensed under the GNU GPLv3 (section 13 permits combining GPLv3 code).
 //
 // Bits are packed MSB-first to mirror the reader's 24-bit refill window. A "forward" stream's bytes go
 // at the start of the bit region in order; a "backward" stream's bytes are written in reverse order onto the region's

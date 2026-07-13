@@ -211,7 +211,9 @@ public static class ProsperoLaunchReadiness
             issues.Add("No eboot.bin at the application root.");
 
         var mainModule = modules.FirstOrDefault(m => m.Path == "eboot.bin");
-        if (hasEboot && mainModule is not null && !mainModule.WillRunOnDebugConsole)
+        if (hasEboot && mainModule is null)
+            issues.Add("eboot.bin is present but is not a loadable ELF or SELF module; it will not start.");
+        else if (hasEboot && mainModule is not null && !mainModule.WillRunOnDebugConsole)
             issues.Add($"eboot.bin will not start on a debug-mode console: {mainModule.Note}");
 
         var blocked = modules

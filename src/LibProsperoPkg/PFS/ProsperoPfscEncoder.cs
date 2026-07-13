@@ -1,12 +1,9 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
 // Copyright (C) 2026 SvenGDK
 //
-// PFSC block encoder. A plain PFSC writer only emits
-// a PFSC header with every block stored at full size (no compression). This encoder produces
-// per-block compression.
-//
-// The format produced here is readable by the existing
-// LibProsperoPkg.PFS.PFSCReader (validated by round-trip), so it works for PS5 image workflows.
+// PFSC block encoder. A plain PFSC writer only emits a PFSC header with every block stored at full
+// size (no compression). This encoder produces per-block compression. The format it produces is
+// readable by LibProsperoPkg.PFS.ProsperoPfscReader.
 #nullable enable
 using LibProsperoPkg.Util;
 using System;
@@ -81,7 +78,7 @@ public static class ProsperoPfscEncoder
     /// <summary>The 4-byte PFSC magic ('P','F','S','C').</summary>
     public const uint Magic = 0x43534650;
 
-    // PFSC header constants (see PFSCReader).
+    // PFSC header constants (see ProsperoPfscReader).
     private const int BlockOffsetsOffset = 0x400;
     private const int InitialDataOffset = 0x10000;
     private const int OffsetEntrySize = 8;
@@ -243,9 +240,8 @@ public static class ProsperoPfscEncoder
             s.WriteInt64LE(offsets[(int)i]);
     }
 
-    // Produces a zlib stream (2-byte header + raw DEFLATE + adler32), matching
-    // Python's zlib.compress. PFSCReader skips the 2-byte header and inflates the
-    // remainder with a raw DeflateStream, ignoring the trailing checksum.
+    // Produces a zlib stream (2-byte header + raw DEFLATE + adler32 trailer). ProsperoPfscReader skips
+    // the 2-byte header and inflates the remainder with a raw DeflateStream, ignoring the trailing checksum.
     private static byte[] Deflate(byte[] data, int count, CompressionLevel level)
     {
         using var ms = new MemoryStream(count);

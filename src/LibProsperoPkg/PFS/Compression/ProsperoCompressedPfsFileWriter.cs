@@ -61,8 +61,8 @@ public static class ProsperoCompressedPfsFileWriter
         0x19, 0x32, 0x7e, 0x0f, 0x50, 0x6b, 0xbc, 0xf4, 0x59, 0xf4,
     ];
 
-    // id=2: 64-byte shuffle-pattern field-width table (constant; the SoA decompositions of the 13
-    // PfsShufflePattern entries). The nwonly format uses shuffle NONE.
+    // id=2: 64-byte shuffle-pattern field-width table (constant; eight 8-byte field-width rows). The
+    // default format uses shuffle NONE.
     private static readonly byte[] ShuffleTable =
     [
         0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,

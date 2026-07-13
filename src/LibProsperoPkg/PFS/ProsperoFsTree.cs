@@ -186,25 +186,6 @@ public class ProsperoFsFile : ProsperoFsNode
         _compressedSize = Size;
     }
 
-    /// <summary>
-    /// Constructs an FSFile for a pre-rendered payload whose on-disk size differs from its
-    /// logical (decompressed) size — e.g. a genuinely PFSC-compressed pfs_image.dat. This is
-    /// the explicit-size counterpart of <see cref="ProsperoFsFile(ProsperoPfsBuilder)"/>, which only emits a
-    /// PFSC header over uncompressed blocks.
-    /// </summary>
-    /// <param name="writer">A function that writes exactly <paramref name="size"/> bytes (the on-disk image).</param>
-    /// <param name="name">This file's name.</param>
-    /// <param name="size">The on-disk byte count <paramref name="writer"/> produces (drives the inode block table).</param>
-    /// <param name="compressedSize">The logical/decompressed size recorded in the inode (SizeCompressed).</param>
-    /// <param name="compress">Set true to mark the inode as PFSC-compressed.</param>
-    public ProsperoFsFile(Action<Stream> writer, string name, long size, long compressedSize, bool compress)
-    {
-        Write = writer;
-        this.name = name;
-        Size = size;
-        _compressedSize = compressedSize;
-        Compress = compress;
-    }
     private long _compressedSize;
     public override long CompressedSize => _compressedSize;
     /// <summary>

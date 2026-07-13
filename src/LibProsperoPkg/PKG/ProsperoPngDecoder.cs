@@ -26,7 +26,7 @@ public static class ProsperoPngDecoder
     private static readonly int[] PassStepX = [8, 8, 4, 4, 2, 2, 1];
     private static readonly int[] PassStepY = [8, 8, 8, 4, 4, 2, 2];
 
-    /// <summary>The decoded pixel width in pixels.</summary>
+    /// <summary>A decoded image: its pixel dimensions and RGBA pixel data.</summary>
     public readonly struct Image
     {
         /// <summary>The image width in pixels.</summary>

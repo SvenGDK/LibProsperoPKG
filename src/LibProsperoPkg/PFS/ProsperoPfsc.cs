@@ -3,8 +3,7 @@
 //
 // PS5-facing PFSC image pack/unpack. It wraps a prepared image file
 // (exFAT/UFS/inner pfs_image.dat) into a PFSC-compressed image and reverses the operation.
-// Compression is performed
-// by LibProsperoPkg.PFS.PfscEncoder.
+// Compression is performed by LibProsperoPkg.PFS.ProsperoPfscEncoder.
 #nullable enable
 using System;
 using System.IO;

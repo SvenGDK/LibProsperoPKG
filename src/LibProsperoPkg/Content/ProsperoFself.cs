@@ -5,8 +5,8 @@
 // SELF images: a container header, a segment table, the original ELF header and program headers, extended
 // info, and plaintext segment data. The debug path builds a fake-self whose per-segment digest and
 // signature areas are zero-filled and whose authority id carries the fake-authority prefix, so a debug
-// console accepts the module without a real signature. The extended-info digest is SHA-256 over the whole
-// input ELF file.
+// console accepts the module without a real signature. The extended-info digest is SHA-256 over the
+// embedded (normalized) module bytes.
 
 #nullable enable
 using System;

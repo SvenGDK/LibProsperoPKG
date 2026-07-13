@@ -58,9 +58,9 @@ public class ProsperoPfsBuilder
     /// <summary>
     /// When set before <see cref="WriteImage(Stream)"/>, captures the <c>sce_sys/imagedigs.dat</c>
     /// preimage into <see cref="ImageDigests"/>: one per-block descriptor digest for every
-    /// block of the plaintext signed image, stored from last byte to first. The PS5 image builder
-    /// gathers the signer's per-block HMAC-SHA256 descriptor digests and writes each digest from
-    /// byte 31 down to byte 0; reproduced here from this image's own signing key. Populated only for a signed image.
+    /// block of the plaintext signed image, stored from last byte to first. Each per-block
+    /// HMAC-SHA256 descriptor digest, from this image's own signing key, is stored with its bytes
+    /// reversed (byte 31 first). Populated only for a signed image.
     /// </summary>
     public bool CaptureImageDigests;
 

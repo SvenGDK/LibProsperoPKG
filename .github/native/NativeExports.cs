@@ -215,7 +215,7 @@ internal unsafe struct LppLaunchReadiness
 internal static unsafe class NativeExports
 {
     // Bump when the exported surface changes in a way consumers can gate on.
-    private const int AbiVersionValue = 6;
+    private const int AbiVersionValue = 7;
 
     [ThreadStatic]
     private static string? _lastError;
@@ -229,6 +229,13 @@ internal static unsafe class NativeExports
     /// <summary>Returns the numeric ABI version of the exported surface.</summary>
     [UnmanagedCallersOnly(EntryPoint = "lpp_abi_version")]
     public static int AbiVersion() => AbiVersionValue;
+
+    /// <summary>
+    /// Returns 1 when the wired-in publishing key material is present, so the build path can sign the
+    /// package; returns 0 when it is absent and signing is skipped. Never fails.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_keys_available")]
+    public static int KeysAvailable() => ProsperoPackageBuilder.KeysAvailable ? 1 : 0;
 
     /// <summary>Copies the most recent error message for the current thread into a caller buffer.</summary>
     /// <returns>The number of UTF-8 bytes written (excluding the terminator), or a negative value on error.</returns>
@@ -1014,6 +1021,37 @@ internal static unsafe class NativeExports
     }
 
     /// <summary>
+    /// Runs the structural acceptance-gate checks on the package at <paramref name="path"/> and writes
+    /// each check as one line (<c>[Status] Name: Detail</c>) into <paramref name="outBuffer"/>.
+    /// <paramref name="expectedContentId"/> may be NULL to skip the content-id match.
+    /// </summary>
+    /// <returns>The number of bytes written, or a negative value (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_validate_package_report")]
+    public static int ValidatePackageReport(byte* path, byte* expectedContentId, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string? p = Utf8ToString(path);
+            if (string.IsNullOrEmpty(p)) { _lastError = "path is required"; return -1; }
+
+            ProsperoAcceptanceReport report = ProsperoPkgValidator.Validate(p, Utf8ToString(expectedContentId));
+            var sb = new StringBuilder();
+            for (int i = 0; i < report.Checks.Count; i++)
+            {
+                ProsperoAcceptanceCheck c = report.Checks[i];
+                if (i > 0) sb.Append('\n');
+                sb.Append('[').Append(c.Status).Append("] ").Append(c.Name).Append(": ").Append(c.Detail);
+            }
+            return WriteUtf8(sb.ToString(), outBuffer, capacity);
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// Reassembles a split disc-backup package (from an <c>app.json</c> path or a directory that
     /// contains one) into a single package file at <paramref name="outputPath"/>.
     /// </summary>
@@ -1108,6 +1146,72 @@ internal static unsafe class NativeExports
 
             ProsperoBackupConversionResult result = ProsperoBackupConverter.Convert(options);
             if (substitutedCount is not null) *substitutedCount = result.SubstitutedModules.Count;
+            int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
+            return written < 0 ? written : 0;
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Converts a decrypted application backup into a debug package with the full option set. Extends
+    /// <see cref="ConvertBackup"/> with the name of the decrypted-module subtree
+    /// (<paramref name="decryptedSubfolder"/>, NULL/empty for <c>decrypted</c>), a flag to drop the
+    /// backup's own <c>right.sprx</c> so the embedded debug module is injected instead
+    /// (<paramref name="useEmbeddedRightSprx"/>), and the inner-image codec
+    /// (<paramref name="innerCompression"/>, LPP_INNER_*). The substituted, plaintext and unresolved
+    /// module counts are written to the output pointers when non-NULL. The output path is written into
+    /// <paramref name="outPath"/> as UTF-8.
+    /// </summary>
+    /// <returns>0 on success; -1 on failure (call lpp_last_error).</returns>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_convert_backup_ex")]
+    public static int ConvertBackupEx(
+        byte* backupFolder,
+        byte* outputFolder,
+        byte* contentId,
+        byte* passcode,
+        byte* version,
+        byte* decryptedSubfolder,
+        int useEmbeddedRightSprx,
+        int innerCompression,
+        int* substitutedCount,
+        int* plaintextCount,
+        int* unresolvedCount,
+        byte* outPath,
+        int outPathCapacity)
+    {
+        try
+        {
+            string? b = Utf8ToString(backupFolder);
+            string? o = Utf8ToString(outputFolder);
+            if (string.IsNullOrEmpty(b) || string.IsNullOrEmpty(o))
+            {
+                _lastError = "backup_folder and output_folder are required";
+                return -1;
+            }
+
+            var options = new ProsperoBackupConversionOptions
+            {
+                BackupFolder = b,
+                OutputFolder = o,
+                ContentId = Utf8ToString(contentId) ?? "",
+                Passcode = Fallback(Utf8ToString(passcode), new string('0', 32)),
+                Version = Utf8ToString(version) ?? "",
+                UseEmbeddedRightSprx = useEmbeddedRightSprx != 0,
+                InnerCompression = ToEnum<ProsperoInnerCompression>(innerCompression),
+            };
+
+            string? sub = Utf8ToString(decryptedSubfolder);
+            if (!string.IsNullOrEmpty(sub))
+                options.DecryptedSubfolder = sub;
+
+            ProsperoBackupConversionResult result = ProsperoBackupConverter.Convert(options);
+            if (substitutedCount is not null) *substitutedCount = result.SubstitutedModules.Count;
+            if (plaintextCount is not null) *plaintextCount = result.PlaintextModules.Count;
+            if (unresolvedCount is not null) *unresolvedCount = result.UnresolvedModules.Count;
             int written = WriteUtf8(result.OutputPath, outPath, outPathCapacity);
             return written < 0 ? written : 0;
         }
@@ -1358,6 +1462,25 @@ internal static unsafe class NativeExports
 
             FillLaunchReadiness(ProsperoLaunchReadiness.InspectAppRoot(root), outReadiness);
             return 0;
+        }
+        catch (Exception ex) { _lastError = ex.Message; return -1; }
+    }
+
+    /// <summary>
+    /// Inspects an application root and writes its blocking launch-readiness reasons (newline-separated)
+    /// into <paramref name="outBuffer"/>. An empty result means the tree is launch-ready. Pairs with
+    /// <see cref="InspectLaunchReadiness"/>, which reports the issue count.
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "lpp_launch_readiness_issues")]
+    public static int LaunchReadinessIssues(byte* appRoot, byte* outBuffer, int capacity)
+    {
+        try
+        {
+            string? root = Utf8ToString(appRoot);
+            if (string.IsNullOrEmpty(root)) { _lastError = "app_root is required"; return -1; }
+
+            ProsperoLaunchReadinessReport report = ProsperoLaunchReadiness.InspectAppRoot(root);
+            return WriteUtf8(string.Join('\n', report.Issues), outBuffer, capacity);
         }
         catch (Exception ex) { _lastError = ex.Message; return -1; }
     }

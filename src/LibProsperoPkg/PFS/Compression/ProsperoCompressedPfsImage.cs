@@ -1,17 +1,13 @@
 // LibProsperoPkg - A library for building and inspecting PS5 packages.
 // Copyright (C) 2026 SvenGDK
 //
-// PS5 PFSv3 inner-image packer/unpacker — the Kraken "PFSC" container used for
-// inner images (pfs_image.dat). This is the Kraken counterpart of the zlib packer
-// in LibProsperoPkg.PFS.ProsperoPfsc: same 'PFSC' magic, but format version 3, a
-// 7-section directory, SHA3-256 digests and Kraken (level 7, window 18) per-block compression
-// — NOT zlib. The two are kept as separate code paths because the installable debug .pkg inner
-// image uses the zlib PFSC, while the "nwonly" inner image uses this Kraken PFSv3
-// container (see ProsperoPkgBuildProperties.InnerCompression).
+// PFSv3 "PFSC" container packer/unpacker: same 'PFSC' magic as the format-version-2 container in
+// LibProsperoPkg.PFS.ProsperoPfsc, but format version 3, a 7-section directory, SHA3-256 digests
+// and Kraken (level 7, window 18) per-block compression.
 //
 // Compression and decompression use the codec in PFS/Compression: CompressedPfsFileWriter
-// (Kraken encoder) and CompressedPfsFile (Kraken decoder). Writer output round-trips exactly
-// through the in-process decoder for the supported container shapes.
+// (encoder) and CompressedPfsFile (decoder). Writer output round-trips exactly through the
+// in-process decoder for the supported container shapes.
 #nullable enable
 using System;
 using System.Buffers.Binary;
@@ -175,7 +171,7 @@ public static class ProsperoCompressedPfsImage
 
         var log = logger ?? (_ => { });
         byte[] container = File.ReadAllBytes(inputPath);
-        if (!IsScePfsImage(container))
+        if (!IsPfsImage(container))
             throw new InvalidDataException("The input file is not a PFSv3 compressed image (wrong magic/version).");
 
         byte[] raw = Unpack(container);
@@ -193,7 +189,7 @@ public static class ProsperoCompressedPfsImage
     /// header. This distinguishes the Kraken container from the zlib PFSC (which carries a
     /// zero word at offset 0x04 and no section count), so callers can pick the right unpacker.
     /// </summary>
-    public static bool IsScePfsImage(ReadOnlySpan<byte> data)
+    public static bool IsPfsImage(ReadOnlySpan<byte> data)
     {
         if (data.Length < 0x08) return false;
         if (BinaryPrimitives.ReadUInt32LittleEndian(data) != PfscMagic) return false;
@@ -204,13 +200,13 @@ public static class ProsperoCompressedPfsImage
     }
 
     /// <summary>Returns <c>true</c> when the file at <paramref name="path"/> is a PS5 PFSv3 compressed image.</summary>
-    public static bool IsScePfsImageFile(string path)
+    public static bool IsPfsImageFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         using var s = File.OpenRead(path);
         Span<byte> head = stackalloc byte[8];
         int read = s.Read(head);
-        return read == head.Length && IsScePfsImage(head);
+        return read == head.Length && IsPfsImage(head);
     }
 
     /// <summary>
@@ -224,7 +220,7 @@ public static class ProsperoCompressedPfsImage
     public static bool ValidateRoundTrip(ReadOnlySpan<byte> image, int level = DefaultLevel, int blockSize = DefaultBlockSize)
     {
         byte[] container = Pack(image, level, blockSize);
-        if (!IsScePfsImage(container)) return false;
+        if (!IsPfsImage(container)) return false;
         byte[] restored = ProsperoCompressedPfsFile.Parse(container).Decompress();
         return restored.AsSpan().SequenceEqual(image);
     }

@@ -39,7 +39,8 @@ public sealed class InnerImagePage : ToolPageViewModel
             _output.Value.Trim(),
             _contentId.Value.Trim(),
             ParseHelpers.Passcode(_passcode.Value),
-            _form.SelectedAs<InnerImageForm>());
+            _form.SelectedAs<InnerImageForm>(),
+            log);
         log("Output: " + result);
     }
 
@@ -48,7 +49,9 @@ public sealed class InnerImagePage : ToolPageViewModel
         ProsperoPackageBuilder.EncryptPfsImage(
             _encryptPath.Value.Trim(),
             _encryptContentId.Value.Trim(),
-            ParseHelpers.Passcode(_encryptPasscode.Value));
+            ParseHelpers.Passcode(_encryptPasscode.Value),
+            seed: null,
+            logger: log);
         log("Encrypted: " + _encryptPath.Value.Trim());
     }
 }

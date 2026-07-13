@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 /* ABI version of the exported surface (see lpp_abi_version). Bumped when exports change. */
-#define LPP_ABI_VERSION 6
+#define LPP_ABI_VERSION 7
 
 /* Build mode (build `mode`). */
 #define LPP_MODE_APPLICATION                 0
@@ -37,9 +37,12 @@ extern "C" {
 #define LPP_OUTPUT_DEBUG_IMAGE         1
 
 /* Inner-image codec (build `inner_compression`). */
-#define LPP_INNER_NONE    0
-#define LPP_INNER_ZLIB    1
-#define LPP_INNER_KRAKEN  2
+#define LPP_INNER_NONE               0
+#define LPP_INNER_ZLIB               1
+#define LPP_INNER_KRAKEN             2
+/* Installable data-first inner image: raw-concatenated per-file payloads described by a generated
+ * naps_pkg_layout.dat. This is the recommended codec for installable homebrew packages. */
+#define LPP_INNER_NWONLY_DATA_FIRST  3
 
 /* Inner-image form (lpp_build_inner_image `form`). */
 #define LPP_FORM_PLAINTEXT         0
@@ -274,6 +277,12 @@ const char* lpp_version(void);
 
 /* Returns the numeric ABI version of this library (compare against LPP_ABI_VERSION). */
 int lpp_abi_version(void);
+
+/*
+ * Returns 1 when the wired-in publishing key material is present (the build path can sign the
+ * package), or 0 when it is absent and signing is skipped. Never fails.
+ */
+int lpp_keys_available(void);
 
 /* Copies the current thread's most recent error message into `buffer`. */
 int lpp_last_error(char* buffer, int capacity);
@@ -511,6 +520,15 @@ int lpp_validate_package(const char* path, const char* expected_content_id,
                          int* pass_count, int* warn_count, int* fail_count);
 
 /*
+ * Runs the structural acceptance-gate checks on the package at `path` and writes each check as one
+ * line ("[Status] Name: Detail") into `out_buffer`. `expected_content_id` may be NULL to skip the
+ * content-id match. Follows the string-output convention (bytes written, or the negative required
+ * size).
+ */
+int lpp_validate_package_report(const char* path, const char* expected_content_id,
+                                char* out_buffer, int capacity);
+
+/*
  * Reassembles a split disc-backup package (from an app.json path or a directory that contains one)
  * into a single package file at `output_path`. Returns the number of bytes written on success, or
  * -1 on failure (call lpp_last_error).
@@ -535,6 +553,21 @@ int lpp_disc_backup_verify(const char* manifest_path, int* digest_ok, int* chunk
 int lpp_convert_backup(const char* backup_folder, const char* output_folder, const char* content_id,
                        const char* passcode, const char* version, int* substituted_count,
                        char* out_path, int out_path_capacity);
+
+/*
+ * Converts a decrypted application backup into a debug package with the full option set. Extends
+ * lpp_convert_backup with the name of the decrypted-module subtree (`decrypted_subfolder`, NULL/empty
+ * for "decrypted"), a flag to drop the backup's own right.sprx so the embedded debug module is
+ * injected instead (`use_embedded_right_sprx`), and the inner-image codec (`inner_compression`,
+ * LPP_INNER_*). The substituted, plaintext and unresolved module counts are written to the output
+ * pointers when non-NULL. The output path is written to `out_path`. Returns 0 on success, or -1 on
+ * failure (call lpp_last_error).
+ */
+int lpp_convert_backup_ex(const char* backup_folder, const char* output_folder, const char* content_id,
+                          const char* passcode, const char* version, const char* decrypted_subfolder,
+                          int use_embedded_right_sprx, int inner_compression, int* substituted_count,
+                          int* plaintext_count, int* unresolved_count,
+                          char* out_path, int out_path_capacity);
 
 /*
  * Reads the package at `path` and fills `out_info` with header and image-header fields (package
@@ -600,6 +633,13 @@ int lpp_package_homebrew(const char* homebrew_folder, const char* output_folder,
  * 0 on success, or -1 on failure (call lpp_last_error).
  */
 int lpp_inspect_launch_readiness(const char* app_root, lpp_launch_readiness* out_readiness);
+
+/*
+ * Inspects an application root and writes its blocking launch-readiness reasons (newline-separated)
+ * into `out_buffer`; an empty result means the tree is launch-ready. Pairs with
+ * lpp_inspect_launch_readiness, which reports the issue count. Follows the string-output convention.
+ */
+int lpp_launch_readiness_issues(const char* app_root, char* out_buffer, int capacity);
 
 /*
  * Lays a source folder out into a plaintext inner-PFS image. The file and directory counts are

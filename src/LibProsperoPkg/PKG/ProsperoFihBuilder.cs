@@ -224,8 +224,7 @@ public static class ProsperoFihBuilder
         BinaryPrimitives.WriteUInt64LittleEndian(h.AsSpan(0x68), 0x800000000000UL);
 
         // 0x50 = the inner mount's data-region block count (= metaBase block index = MetaBaseLogical / 64KiB).
-        // The console's DbgInstall transfer reads this to size the mount's data region; a zero value trips
-        // the transfer (ret 0x80b21171, "transfer failed").
+        // The installer's transfer reads this to size the mount's data region; a zero value is rejected.
         if (nestedMetaBaseBlocks > 0)
             BinaryPrimitives.WriteUInt64LittleEndian(h.AsSpan(ProsperoPkgLayout.FihDataRegionBlockCountField), (ulong)nestedMetaBaseBlocks);
 

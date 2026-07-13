@@ -2,10 +2,9 @@
 // Copyright (C) 2026 SvenGDK
 //
 // ---------------------------------------------------------------------------------------------------
-// Kraken (newLZ) encoder — a from-scratch managed encoder producing standard, decoder-valid
+// Kraken (newLZ) encoder producing standard, decoder-valid
 // newLZ chunks accepted by the PS5 Kraken decompressor. The PS5 block decompressor is the
-// acceptance check. No bytes are copied from any third-party encoder source; this file emits the
-// documented chunk structure. GPLv3.
+// acceptance check. This file emits the documented chunk structure. GPLv3.
 //
 // A PFS block (up to blockSize, default 256 KiB) is encoded as ONE or TWO headerless newLZ chunks,
 // because a single newLZ chunk decodes at most 128 KiB (0x20000). blockSize 0x40000 is therefore
@@ -148,7 +147,7 @@ internal static class OodleKrakenEncoder
     /// size. When <paramref name="useHuffmanArrays"/> is true
     /// the literal/command/length arrays are Huffman-coded (entropy chunk type 2) via
     /// <see cref="KrakenHuffmanArrayEncoder"/> when that is smaller than the raw form, shrinking actual
-    /// blocks toward the sizes. The packed-offset array is always left raw because the offset
+    /// blocks toward their target sizes. The packed-offset array is always left raw because the offset
     /// reader inspects its first byte (the 0x80 bit selects two-table mode), which an entropy header
     /// would corrupt.
     /// </summary>
@@ -209,14 +208,14 @@ internal static class OodleKrakenEncoder
         // parse loop (the algorithm) enforces `match_zone_end - to_ptr >= lrl` with
         // match_zone_end = chunk_end - 16: the match start
         // (= literal-run end) must be <= chunk_end - 16. A match that starts later drifts the decode
-        // pointer and the block is rejected with SCE_COMPRESSION_ERROR_DECOMPRESSION_FAILED (-1007), even
+        // pointer and the block is rejected with decompression error -1007, even
         // though our own (lenient) decoder round-trips it. So the last legal match-start is chunkEnd-NoMatchZone.
         int matchStartLimit = chunkEnd - NoMatchZone;
         int firstMatchPos = withSeed ? chunkStart + 8 : chunkStart; // seed is the first 8 bytes
         // The seed bytes are valid copy sources (the decoder emits them before the first command), so
         // index them in the hash chain. Without this the parser cannot find a match that references the
         // first 8 bytes of a seeded chunk and the first match is delayed by up to 8 literals, which is
-        // exactly how the parses a periodic block (e.g. a distance-16 match at position 16 referencing
+        // exactly how the parser handles a periodic block (e.g. a distance-16 match at position 16 referencing
         // position 0). The seedless second chunk needs nothing here — its predecessors are already indexed.
         if (withSeed)
         {
@@ -280,7 +279,7 @@ internal static class OodleKrakenEncoder
     /// Builds the newLZ stream arrays from an already-computed parse and assembles the chunk bytes
     /// (entropy-coding the lit/cmd/length arrays when beneficial). Factored out of <see cref="EncodeChunk"/>
     /// so a diagnostic can measure the actual entropy-coded emit size of an externally supplied parse
-    /// (the vs the DP's) — the metric the level-7 producer actually minimises in its final
+    /// (its size vs the DP's) — the metric the level-7 producer actually minimises in its final
     /// greedy-vs-DP selection (actual-emit-size pick). Returns null when the parse needs a store-raw
     /// fallback (a literal run over MaxLitRun or a match starting inside the no-match zone).
     /// </summary>
@@ -334,7 +333,7 @@ internal static class OodleKrakenEncoder
             // sub-stream when the packed value reaches 255 (matchLen >= 272). A trailing command with
             // MatchLen==0 (the final literal run) contributes no command byte -- the decoder copies its
             // literals in the tail loop. Splitting an over-long match into rep0 continuation pieces would
-            // still round-trip through our lenient decoder, but it is NOT what the emits, so the
+            // still round-trip through our lenient decoder, but it is NOT what the encoder emits, so the
             // block bytes would differ (extra command bytes, no escape) -- hence one command, one escape.
             if (c.MatchLen == 0)
                 continue;
@@ -527,8 +526,7 @@ internal static class OodleKrakenEncoder
     // Space-speed lambda used by the array method decision (see HuffmanBeatsRawJ). It weights
     // the Huffman-array decode-time estimate in the raw-vs-Huffman J-cost. Observed array decisions
     // pin it to the open interval (0.0321, 0.0662]; 0.046 is the geometric centre, maximising the
-    // classification margin to every observed raw/Huffman decision. See Reversed\oodle-kraken.md
-    // §"array method J-cost".
+    // classification margin to every observed raw/Huffman decision.
     private const float ArrayJLambda = 0.046f;
 
     // Raw-vs-Huffman array choice. This is not a raw byte-size compare: the encoder keeps the
@@ -825,6 +823,7 @@ internal static class OodleKrakenEncoder
         int chunkEnd = matchLimit + LiteralTail; // rank by the TRUE (uncapped-to-chunk) length, like the trie
         uint hs = Hash(data, pos);
         int c = head[hs];
+        int maxLen = chunkEnd - pos; // the longest match physically possible at this position
         while (c >= 0)
         {
             int dist = pos - c;
@@ -839,6 +838,10 @@ internal static class OodleKrakenEncoder
                         if (fn < 4) { fl[fn] = len; fd[fn] = dist; fn++; }
                         else { fl[0] = fl[1]; fl[1] = fl[2]; fl[2] = fl[3]; fl[3] = len; fd[0] = fd[1]; fd[1] = fd[2]; fd[2] = fd[3]; fd[3] = dist; }
                     }
+                    // A match reaching the chunk end is the longest possible here; since the walk is
+                    // most-recent-first (closest first), no earlier candidate can be strictly longer. Stop.
+                    // Bounds this greedy match-finder on long-run inputs (otherwise a single hash chain is O(n^2)).
+                    if (bestLen >= maxLen) break;
                 }
             }
             c = prev[c];
@@ -1875,6 +1878,7 @@ internal static class OodleKrakenEncoder
             int distFloor = UseTinyOffsetRemap ? 1 : MinDistance; // include dist 1..7 for the round-up below
             uint hs = Hash(data, pos);
             int c = dpHead[hs];
+            int maxLen = chunkEnd - pos; // the longest match physically possible at this position
             while (c >= 0)
             {
                 int dist = pos - c;
@@ -1889,6 +1893,12 @@ internal static class OodleKrakenEncoder
                             if (fn < 4) { fl[fn] = len; fd[fn] = dist; fn++; }
                             else { fl[0] = fl[1]; fl[1] = fl[2]; fl[2] = fl[3]; fl[3] = len; fd[0] = fd[1]; fd[1] = fd[2]; fd[2] = fd[3]; fd[3] = dist; }
                         }
+                        // A match that reaches the chunk end is the longest possible here; since the walk is
+                        // most-recent-first (closest offset first), no earlier (farther) candidate can be
+                        // strictly longer, so nothing more would be recorded. Stop. This leaves the finder's
+                        // output identical while bounding the walk on long-run inputs (e.g. the zero-padded
+                        // metadata region), which otherwise makes a single hash chain O(n^2).
+                        if (bestLen >= maxLen) break;
                     }
                 }
                 c = dpPrev[c];

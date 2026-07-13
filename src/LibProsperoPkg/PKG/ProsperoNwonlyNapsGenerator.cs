@@ -57,15 +57,11 @@ public static class ProsperoNwonlyNapsGenerator
             runSet = new HashSet<long>();
             for (int i = 0; i < placements.Count; i++)
             {
-                // A RUN opens only at a raw file that STARTS a fresh on-disk block. Raw modules that pack
-                // contiguously after another raw file in the same block do NOT re-anchor — they continue
-                // the current run, so
-                // the reader decodes them linearly. (Before module packing every raw file was block-aligned,
-                // so StoreRaw implied a fresh block; that is no longer true.)
-                bool blockAligned = placements[i].StoreRaw && placements[i].OnDiskOffset % Block64K == 0;
-                bool afterCompressed = i > 0 && !placements[i - 1].StoreRaw;
-                if (blockAligned || afterCompressed)
-                    runSet.Add(placements[i].OnDiskOffset);
+                // A RUN opens (re-anchoring the compressed cursor) at EVERY file's on-disk start —
+                // whether the file is block-aligned (keystone, right.sprx) or packs mid-block after a
+                // previous raw file (e.g. eboot.bin, which begins at right.sprx's on-disk end, not a
+                // 64 KiB boundary). A "block-aligned only" rule would drop the mid-block file's RUN.
+                runSet.Add(placements[i].OnDiskOffset);
 
                 // The compressed offset space re-bases every 11 ublocks within a run. For a raw file this
                 // is on-disk offset + 11*256K, 22*256K, and so on.
@@ -100,22 +96,31 @@ public static class ProsperoNwonlyNapsGenerator
                 ShuffleIndex = 0,
             });
 
-        // Metadata blocks: decode the compressed metadata's per-256K-block chunk sizes.
-        var metaFile = ProsperoCompressedPfsFile.Parse(
-            ProsperoCompressedPfsImage.Pack(result.MetadataPlaintext, 7, (int)Ublock256K));
+        // Metadata blocks: the assembler already captured the compressed metadata's per-256K-block chunk
+        // table (ProsperoInnerMetaBlockChunk), so reuse it instead of Kraken-packing the metadata again.
+        // Fall back to a fresh pack only if the assembler did not supply the table (e.g. raw metadata).
+        IReadOnlyList<ProsperoInnerMetaBlockChunk> metaChunks = result.MetadataBlocks;
+        if (metaChunks.Count == 0)
+        {
+            var metaFile = ProsperoCompressedPfsFile.Parse(
+                ProsperoCompressedPfsImage.Pack(result.MetadataPlaintext, 7, (int)Ublock256K));
+            metaChunks = metaFile.Blocks.Select(b => new ProsperoInnerMetaBlockChunk(
+                b.CompressedSize, b.UncompressedSize, b.IsMultiChunk, b.FirstChunkCompressedSize)).ToList();
+        }
         long metaOnDisk = result.MetadataOnDiskOffset;
         bool metaCompressed = result.CompressedMetadata.Length < result.MetadataPlaintext.Length;
         long metaCursor = metaOnDisk;
-        int metaCount = metaFile.Blocks.Count;
+        int metaCount = metaChunks.Count;
         for (int i = 0; i < metaCount; i++)
         {
-            var blk = metaFile.Blocks[i];
+            var blk = metaChunks[i];
             int even = blk.IsMultiChunk ? blk.FirstChunkCompressedSize : blk.CompressedSize;
             tail.Add(new NapsCblockPlanEntry
             {
-                // The metadata section opens a RUN on its first and last block; the middle blocks continue
-                // the compressed cursor.
-                StartRun = i == 0 || i == metaCount - 1,
+                // The metadata section opens a RUN only on its FIRST block; the remaining metadata chunks
+                // continue the compressed cursor under that run (the trailing terminator opens its own RUN).
+                // A "first and last" rule would insert a spurious RUN before the final metadata chunk.
+                StartRun = i == 0,
                 OnDiskOffset = metaCursor,
                 LogicalOffset = metaBase + (long)i * Ublock256K,
                 EvenChunkCompressedLength = metaCompressed ? even : blk.UncompressedSize,
