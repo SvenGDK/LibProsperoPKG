@@ -93,8 +93,7 @@ public sealed class ProsperoLaunchReadinessReport
 public static class ProsperoLaunchReadiness
 {
     private const uint ElfMagic = 0x464C457FU;      // 0x7F 'E' 'L' 'F'
-    private const uint FakeSelfMagic = 0x1D3D154FU; // plaintext SELF
-    private const uint SignedSelfMagic = 0xEEF51454U; // signed and encrypted module
+    private const uint SelfMagic = 0x1D3D154FU;     // SELF container magic on disk (fake and genuine alike)
 
     private const ulong AuthorityMask = 0xFF00000000000000UL;
     private const ulong FakeAuthorityPrefix = 0x3100000000000000UL;
@@ -121,11 +120,10 @@ public static class ProsperoLaunchReadiness
             return new ModuleLaunchReadiness(path, ModuleAuthorityKind.RawElf, 0, true,
                 "Raw ELF module; the builder fake-signs it, so it starts on a debug-mode console.");
 
-        if (magic == SignedSelfMagic)
-            return new ModuleLaunchReadiness(path, ModuleAuthorityKind.SignedEncrypted, 0, false,
-                "Signed and encrypted module; it needs the sealed key path and will not start on a debug-mode console.");
-
-        if (magic == FakeSelfMagic)
+        // On disk a signed/encrypted module and a fake-self carry the same SELF magic; they are told
+        // apart by the extended-info authority id, so both route through ClassifySelf. A genuine
+        // (non-fake) authority or an unreadable encrypted header is reported as not launch-ready.
+        if (magic == SelfMagic)
             return ClassifySelf(path, data);
 
         return new ModuleLaunchReadiness(path, ModuleAuthorityKind.NotExecutable, 0, false,

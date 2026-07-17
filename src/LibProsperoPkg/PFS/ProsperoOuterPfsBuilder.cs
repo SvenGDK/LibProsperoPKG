@@ -218,6 +218,7 @@ public static class ProsperoOuterPfsBuilder
         // BlockSize/36 sig+block entries). The indirect block(s) are laid out after the FLT, before the uroot
         // dirents (the outer layout places pfs_image.dat's indirect block at D+4).
         const int DirectBlockSlots = 12;
+        const int IndirectBlockSlots = 5; // the inode ib[] table depth; each entry is one single-indirect block
         int indirectEntriesPerBlock = BlockSize / 36;
         var fileIndirectBlock = new int[files.Count];
         for (int i = 0; i < files.Count; i++) fileIndirectBlock[i] = -1;
@@ -229,6 +230,13 @@ public static class ProsperoOuterPfsBuilder
             {
                 int extra = fileBlockCount[i] - DirectBlockSlots;
                 int needed = (extra + indirectEntriesPerBlock - 1) / indirectEntriesPerBlock;
+                if (needed > IndirectBlockSlots)
+                {
+                    long maxBlocks = DirectBlockSlots + (long)IndirectBlockSlots * indirectEntriesPerBlock;
+                    throw new NotSupportedException(
+                        $"Outer file '{files[i].Name}' spans {fileBlockCount[i]} blocks; one inode addresses at most " +
+                        $"{maxBlocks} blocks (~{maxBlocks * (long)BlockSize / (1024 * 1024)} MiB).");
+                }
                 fileIndirectBlock[i] = indirectRegionStart + indirectBlocksTotal;
                 indirectBlocksTotal += needed;
             }

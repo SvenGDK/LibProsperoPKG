@@ -78,7 +78,7 @@ public static class ProsperoOuterPfsImage
             throw new ArgumentException(
                 $"blockKinds length ({blockKinds.Length}) must equal the block count ({total}).", nameof(blockKinds));
 
-        var xts = new XtsBlockTransform(dataKey.ToArray(), tweakKey.ToArray());
+        using var xts = new XtsBlockTransform(dataKey.ToArray(), tweakKey.ToArray());
         int transformed = 0;
 
         for (int i = 0; i < total; i++)

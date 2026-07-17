@@ -167,6 +167,15 @@ public static class ProsperoHomebrewPackager
                 log("Copied sce_sys metadata tree.");
             }
 
+            // Library modules the application loads at run time live under sce_module and are packed
+            // alongside the application module.
+            string sceModule = Path.Combine(homebrew, "sce_module");
+            if (Directory.Exists(sceModule))
+            {
+                CopyTree(sceModule, Path.Combine(staging, "sce_module"));
+                log("Copied sce_module tree.");
+            }
+
             var buildOptions = new ProsperoBuildOptions
             {
                 Mode = ProsperoPackageMode.Homebrew,
@@ -204,7 +213,8 @@ public static class ProsperoHomebrewPackager
             if (!options.KeepStaging)
             {
                 try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); }
-                catch (IOException) { log($"Warning: could not remove the temporary tree '{staging}'."); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { log($"Warning: could not remove the temporary tree '{staging}': {ex.Message}"); }
             }
         }
     }

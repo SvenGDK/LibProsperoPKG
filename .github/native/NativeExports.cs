@@ -50,11 +50,11 @@ internal unsafe struct LppBuildOptions
     public int StructSize;
     public int Mode;
     public int OutputFormat;
-    public int InnerCompression;   // ignored (retained for ABI); the inner image is always data-first
+    public int InnerCompression;
     public int ApplicationType;
     public int ContentBadgeType;   // negative to omit
     public int GenerateParamJson;  // 0/1
-    public int CompressInnerImage; // ignored (retained for ABI)
+    public int CompressInnerImage; // 0/1
     public int FakeSignSelf;       // 0/1
     public int HasAuthorityId;     // 0/1
 
@@ -220,7 +220,7 @@ internal static unsafe class NativeExports
     [ThreadStatic]
     private static string? _lastError;
 
-    private static readonly byte* VersionPtr = AllocUtf8("LibProsperoPkg 2.0.0");
+    private static readonly byte* VersionPtr = AllocUtf8("LibProsperoPkg 2.5.0");
 
     /// <summary>Returns a pointer to a static, NUL-terminated version string.</summary>
     [UnmanagedCallersOnly(EntryPoint = "lpp_version")]
@@ -297,7 +297,6 @@ internal static unsafe class NativeExports
     {
         try
         {
-            _ = innerCompression; // ignored: the inner image is always the data-first image
             var options = new ProsperoBuildOptions
             {
                 SourceFolder = Utf8ToString(sourceFolder) ?? "",
@@ -1191,7 +1190,6 @@ internal static unsafe class NativeExports
                 return -1;
             }
 
-            _ = innerCompression; // ignored: the inner image is always the data-first image
             var options = new ProsperoBackupConversionOptions
             {
                 BackupFolder = b,
@@ -1423,7 +1421,6 @@ internal static unsafe class NativeExports
             if (string.IsNullOrEmpty(hb) || string.IsNullOrEmpty(of))
             { _lastError = "homebrew_folder and output_folder are required"; return -1; }
 
-            _ = innerCompression; // ignored: the inner image is always the data-first image
             var options = new ProsperoHomebrewPackageOptions
             {
                 HomebrewFolder = hb,

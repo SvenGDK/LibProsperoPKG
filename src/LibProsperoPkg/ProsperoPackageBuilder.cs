@@ -405,9 +405,13 @@ public static class ProsperoPackageBuilder
         // in place but is non-destructive: the originals are restored once packing completes. An
         // existing param.json is used verbatim; its applicationDrmType field is descriptive metadata
         // and does not affect the mount.
-        var restore = PrepareFakeSelfModules(fakeSign, options.FselfOptions, sourceFolder, log, warnings);
+        //
+        // The restore list is created here and populated in place so the finally restores every module
+        // already rewritten even if preparation itself fails partway through.
+        var restore = new List<(string Path, byte[] Original)>();
         try
         {
+            PrepareFakeSelfModules(fakeSign, options.FselfOptions, sourceFolder, log, warnings, restore);
             var result = BuildCore(options, sourceFolder, log, warnings);
             return new ProsperoBuildResult
             {
@@ -685,16 +689,16 @@ public static class ProsperoPackageBuilder
         || fileName.EndsWith(".prx", StringComparison.OrdinalIgnoreCase)
         || fileName.EndsWith(".sprx", StringComparison.OrdinalIgnoreCase);
 
-    // Fake-signs raw ELF modules in the source tree in place, returning the original bytes so the caller
-    // can restore them once packing is done. Returns an empty list when disabled or there is nothing to
-    // convert. Files that are already SELF are skipped.
-    private static List<(string Path, byte[] Original)> PrepareFakeSelfModules(
+    // Fake-signs raw ELF modules in the source tree in place, recording each module's original bytes in
+    // <paramref name="restore"/> BEFORE it is rewritten so the caller can undo every change once packing
+    // is done — including a partial run that throws partway through. Does nothing when disabled or when
+    // there is nothing to convert. Files that are already SELF are skipped.
+    private static void PrepareFakeSelfModules(
         bool fakeSign, LibProsperoPkg.Content.FselfOptions? fselfOptions, string sourceFolder,
-        Action<string> log, List<string> warnings)
+        Action<string> log, List<string> warnings, List<(string Path, byte[] Original)> restore)
     {
-        var restore = new List<(string Path, byte[] Original)>();
         if (!fakeSign)
-            return restore;
+            return;
 
         foreach (var path in Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories).ToList())
         {
@@ -727,17 +731,20 @@ public static class ProsperoPackageBuilder
 
         if (restore.Count == 0)
             warnings.Add("Module fake-signing was enabled but no raw ELF modules were found to convert.");
-
-        return restore;
     }
 
-    // Restores the original module bytes saved by PrepareFakeSelfModules (best-effort).
+    // Restores the original module bytes saved by PrepareFakeSelfModules. This runs during recovery, so
+    // every module is attempted even if one restore fails; a failure on one file must not leave the
+    // remaining files fake-signed.
     private static void RestoreFakeSelfModules(List<(string Path, byte[] Original)> restore, Action<string> log)
     {
         foreach (var (path, original) in restore)
         {
             try { File.WriteAllBytes(path, original); }
-            catch (IOException) { log($"Warning: could not restore original module '{path}' after fake-signing."); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                log($"Warning: could not restore original module '{path}' after fake-signing: {ex.Message}");
+            }
         }
     }
 

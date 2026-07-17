@@ -66,11 +66,22 @@ public sealed class ProsperoDiscBackup
 
         ordered.Sort((a, b) => a.Item1.FileOffset.CompareTo(b.Item1.FileOffset));
 
+        // Validate the split is complete: pieces must tile the image contiguously from offset 0 with no
+        // gap or overlap, and (when the manifest declares it) sum to the original size. Otherwise the
+        // reassembled stream would be silently misaligned.
+        long expectedOffset = 0;
         foreach ((ProsperoDiscBackupPiece piece, string piecePath) in ordered)
         {
             if (!File.Exists(piecePath))
                 throw new FileNotFoundException($"Disc-backup piece '{piece.Url}' not found.", piecePath);
+            if (piece.FileOffset != expectedOffset)
+                throw new InvalidDataException(
+                    $"Disc-backup piece '{piece.Url}' starts at 0x{piece.FileOffset:X}, expected 0x{expectedOffset:X} (gapped or overlapping split).");
+            expectedOffset += piece.FileSize;
         }
+        if (manifest.OriginalFileSize > 0 && expectedOffset != manifest.OriginalFileSize)
+            throw new InvalidDataException(
+                $"Disc-backup pieces total {expectedOffset} bytes but the manifest declares {manifest.OriginalFileSize}.");
 
         return new ProsperoDiscBackup(directory, manifest, [.. ordered]);
     }

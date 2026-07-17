@@ -128,9 +128,10 @@ public sealed class ProsperoBackupConversionResult
 /// </summary>
 public static class ProsperoBackupConverter
 {
-    private const uint ElfMagic = 0x464C457FU;       // 0x7F 'E' 'L' 'F'
-    private const uint SelfMagicFake = 0x1D3D154FU;  // on-disk fake-self
-    private const uint SelfMagicSigned = 0xEEF51454U; // signed/encrypted on-disk module
+    private const uint ElfMagic = 0x464C457FU;   // 0x7F 'E' 'L' 'F'
+    private const uint SelfMagic = 0x1D3D154FU;  // SELF container magic on disk (fake and genuine alike)
+    private const ulong AuthorityMask = 0xFF00000000000000UL;
+    private const ulong FakeAuthorityPrefix = 0x3100000000000000UL;
 
     /// <summary>
     /// Assembles a merged source tree from <paramref name="options"/>' backup and builds a finalized
@@ -278,7 +279,7 @@ public static class ProsperoBackupConverter
                     continue;
                 }
 
-                if (magic == SelfMagicSigned || magic == SelfMagicFake)
+                if (magic == SelfMagic)
                 {
                     string? decrypted = hasDecrypted ? Path.Combine(decryptedRoot, rel) : null;
                     if (decrypted is not null && File.Exists(decrypted) && ReadMagic(decrypted) == ElfMagic)
@@ -289,9 +290,19 @@ public static class ProsperoBackupConverter
                         continue;
                     }
 
-                    // Signed module with no decrypted copy: pack it unchanged and flag it.
                     File.Copy(full, target, overwrite: true);
-                    unresolved.Add(relNorm);
+                    if (IsFakeAuthoritySelf(full))
+                    {
+                        // Already a fake-authority SELF: it runs on a debug console as-is, so it is not
+                        // an unresolved module even without a decrypted copy.
+                        plaintext.Add(relNorm);
+                        log($"Kept already fake-signed module {relNorm}.");
+                    }
+                    else
+                    {
+                        // Genuine signed module with no decrypted copy: pack it unchanged and flag it.
+                        unresolved.Add(relNorm);
+                    }
                     continue;
                 }
             }
@@ -314,11 +325,27 @@ public static class ProsperoBackupConverter
         {
             using var fs = File.OpenRead(path);
             Span<byte> head = stackalloc byte[4];
-            if (fs.Read(head) < 4)
+            if (fs.ReadAtLeast(head, 4, throwOnEndOfStream: false) < 4)
                 return 0;
             return (uint)(head[0] | (head[1] << 8) | (head[2] << 16) | (head[3] << 24));
         }
         catch (IOException) { return 0; }
+    }
+
+    // True when the file is a SELF whose extended-info authority id carries the fake-authority prefix,
+    // i.e. a module that already runs on a debug-mode console without substitution.
+    private static bool IsFakeAuthoritySelf(string path)
+    {
+        try
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            var image = LibProsperoPkg.Content.ProsperoFself.Parse(bytes);
+            return image.ExtInfo is not null && (image.ExtInfo.AuthorityId & AuthorityMask) == FakeAuthorityPrefix;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException)
+        {
+            return false;
+        }
     }
 
     private static bool IsUnder(string path, string root)

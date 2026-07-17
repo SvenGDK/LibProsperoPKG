@@ -68,6 +68,10 @@ public sealed class ProsperoConcatStream : Stream
             ArgumentNullException.ThrowIfNull(source);
             ArgumentOutOfRangeException.ThrowIfNegative(offset);
             ArgumentOutOfRangeException.ThrowIfNegative(length);
+            // Every read seeks its backing source by absolute position, so a non-seekable source cannot
+            // back a segment. Reject it here rather than failing on the first read.
+            if (!source.CanSeek)
+                throw new ArgumentException("Concat-stream sources must be seekable.", nameof(segments));
 
             list.Add(new Segment
             {

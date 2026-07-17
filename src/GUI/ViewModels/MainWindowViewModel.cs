@@ -84,9 +84,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IAppHost
         }
     }
 
+    // The retained log is bounded so a long-running operation does not turn each appended line into a
+    // full re-stringify of an ever-growing buffer (which is quadratic over the run).
+    private const int MaxLogChars = 64 * 1024;
+
     private void Append(string message)
     {
         _log.AppendLine(message);
+        if (_log.Length > MaxLogChars)
+            _log.Remove(0, _log.Length - MaxLogChars);
         LogText = _log.ToString();
     }
 

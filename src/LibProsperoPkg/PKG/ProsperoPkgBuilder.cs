@@ -336,9 +336,14 @@ public static class ProsperoPkgBuilder
 
                 // Fill the imagedigs placeholder with the captured per-block digests (same length as
                 // the placeholder, so the container layout is unchanged) before the bodies and digest
-                // tables are written.
+                // tables are written. Each 32-byte per-block digest is stored byte-reversed on disk.
                 if (outerImage.ImageDigests.Length == imagedigsEntry.FileData.Length)
-                    imagedigsEntry.FileData = outerImage.ImageDigests;
+                {
+                    byte[] reversed = (byte[])outerImage.ImageDigests.Clone();
+                    for (int off = 0; off + ProsperoImageDigests.DigestSize <= reversed.Length; off += ProsperoImageDigests.DigestSize)
+                        Array.Reverse(reversed, off, ProsperoImageDigests.DigestSize);
+                    imagedigsEntry.FileData = reversed;
+                }
                 ProsperoPfsImageXmlOptions siXml = FinishContainer(pkg, fs, props, innerImageDigest, nestedFieldSize, capturedNestedMetaBaseBlocks, capturedNwonlyFih, log);
 
                 // Capture the reproducible SI inputs so the finalizer can build the sce_suppl segment:
@@ -606,8 +611,11 @@ public static class ProsperoPkgBuilder
         ]);
 
         // sce_sys media entries (icon0.png, pic0.png, pic1.png, snd0.at9, ...) present in the folder.
+        // Skip any id already staged by the descriptor pass: playgo-chunk.dat (0x1001) is generated
+        // from the rebuilt image's chunk sizes above, so a source copy of it is not added a second time.
         foreach (var media in CollectMediaEntries(sourceFolder))
-            pkg.Entries.Add(media);
+            if (!pkg.Entries.Any(e => (uint)e.Id == (uint)media.Id))
+                pkg.Entries.Add(media);
 
         // playgo-hash-table.dat + playgo-ficm.dat come AFTER the media entries.
         AddDescriptorEntries(

@@ -716,7 +716,9 @@ public static class ProsperoPackageExtractor
 
         if (pfsOffset <= 0 || pfsOffset >= fileLength)
             pfsOffset = ProsperoPkgLayout.FihHeaderRegionSize; // 0x10000
-        if (pfsSize <= 0 || pfsOffset + pfsSize > fileLength)
+        // pfsOffset is now bounded by fileLength, so compare the size against the remaining space
+        // rather than pfsOffset + pfsSize, which a crafted header could overflow past the check.
+        if (pfsSize <= 0 || pfsSize > fileLength - pfsOffset)
             pfsSize = fileLength - pfsOffset;
 
         return (signedByte, pfsOffset, pfsSize);

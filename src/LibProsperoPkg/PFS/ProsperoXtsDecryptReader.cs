@@ -5,6 +5,7 @@
 #nullable disable
 using LibProsperoPkg.Util;
 using System;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 
 namespace LibProsperoPkg.PFS;
@@ -53,11 +54,11 @@ public class ProsperoXtsDecryptReader : IMemoryReader
           xor = context.xor;
 
         // Reset tweak to sector number
-        Buffer.BlockCopy(BitConverter.GetBytes(sectorNum), 0, tweak, 0, 8);
+        BinaryPrimitives.WriteUInt64LittleEndian(tweak, sectorNum);
         Buffer.BlockCopy(zeroes, 0, tweak, 8, 8);
-        using (var tweakEncryptor = context.tweakCipher.CreateEncryptor())
-        using (var decryptor = context.cipher.CreateDecryptor())
         {
+            ICryptoTransform tweakEncryptor = context.tweakEncryptor;
+            ICryptoTransform decryptor = context.decryptor;
             tweakEncryptor.TransformBlock(tweak, 0, 16, encryptedTweak, 0);
             for (int plaintextOffset = 0; plaintextOffset < sector.Length; plaintextOffset += 16)
             {
@@ -94,6 +95,8 @@ public class ProsperoXtsDecryptReader : IMemoryReader
     {
         public SymmetricAlgorithm cipher;
         public SymmetricAlgorithm tweakCipher;
+        public ICryptoTransform decryptor;
+        public ICryptoTransform tweakEncryptor;
         public byte[] tweak;
         public byte[] xor;
         public byte[] encryptedTweak;
@@ -113,14 +116,21 @@ public class ProsperoXtsDecryptReader : IMemoryReader
             DecryptSector(ctx, sectorBuf, (ulong)currentSector);
     }
 
-    private Ctx MakeCtx() => new Ctx
+    private Ctx MakeCtx()
     {
-        cipher = CreateEcbAes(dataKey),
-        tweakCipher = CreateEcbAes(tweakKey),
-        xor = new byte[16],
-        encryptedTweak = new byte[16],
-        tweak = new byte[16]
-    };
+        var cipher = CreateEcbAes(dataKey);
+        var tweakCipher = CreateEcbAes(tweakKey);
+        return new Ctx
+        {
+            cipher = cipher,
+            tweakCipher = tweakCipher,
+            decryptor = cipher.CreateDecryptor(),
+            tweakEncryptor = tweakCipher.CreateEncryptor(),
+            xor = new byte[16],
+            encryptedTweak = new byte[16],
+            tweak = new byte[16],
+        };
+    }
 
     /// <summary>
     /// Creates a single-block AES-128-ECB engine (no padding) used as the primitive for
@@ -166,6 +176,8 @@ public class ProsperoXtsDecryptReader : IMemoryReader
         }
         finally
         {
+            ctx.decryptor?.Dispose();
+            ctx.tweakEncryptor?.Dispose();
             ctx.cipher?.Dispose();
             ctx.tweakCipher?.Dispose();
         }

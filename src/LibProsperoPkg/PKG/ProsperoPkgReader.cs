@@ -202,7 +202,7 @@ public static class ProsperoPkgReader
         {
             int read = stream.Read(buffer, offset + total, count - total);
             if (read == 0)
-                throw new EndOfStreamException("Unexpected end of PS5 PKG while reading container.");
+                throw new InvalidDataException("Unexpected end of PS5 PKG while reading container (file is truncated).");
             total += read;
         }
     }

@@ -296,7 +296,7 @@ public sealed class ProsperoElfHeader
         ArgumentNullException.ThrowIfNull(path);
         byte[] head = new byte[HeaderSize];
         using FileStream fs = File.OpenRead(path);
-        int read = fs.Read(head, 0, head.Length);
+        int read = fs.ReadAtLeast(head, HeaderSize, throwOnEndOfStream: false);
         if (read < HeaderSize)
             throw new InvalidDataException("File is smaller than an ELF header.");
         return Read(head);

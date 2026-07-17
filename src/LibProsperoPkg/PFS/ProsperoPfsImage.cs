@@ -256,7 +256,7 @@ public static class ProsperoPfsImage
 
         // Derive the AES-XTS (tweak, data) key pair.
         var (tweakKey, dataKey) = Crypto.PfsGenEncKey(ekpfs, seed, options.NewCrypt);
-        var transform = new XtsBlockTransform(dataKey, tweakKey);
+        using var transform = new XtsBlockTransform(dataKey, tweakKey);
 
         long startSector = blockSize / XtsSectorSize; // header block (block 0) stays plaintext
         long totalSectors = length / XtsSectorSize;

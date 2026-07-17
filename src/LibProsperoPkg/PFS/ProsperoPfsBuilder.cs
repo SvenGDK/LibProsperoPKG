@@ -360,8 +360,8 @@ public class ProsperoPfsBuilder
                       view.WriteArray(sectorOffset, sectorBuffer, 0, xtsSectorSize);
                       return localData;
                   },
-                  // Finalizer
-                  local => { });
+                  // Finalizer: dispose the thread-local transform.
+                  local => local.Item1.Dispose());
             }
         }
     }
@@ -420,7 +420,7 @@ public class ProsperoPfsBuilder
         {
             Log("Encrypting...");
             var (tweakKey, dataKey) = Crypto.PfsGenEncKey(properties.EKPFS, hdr.Seed);
-            var transformer = new XtsBlockTransform(dataKey, tweakKey);
+            using var transformer = new XtsBlockTransform(dataKey, tweakKey);
             byte[] sectorBuffer = new byte[xtsSectorSize];
             foreach (var xtsSector in XtsSectorGen())
             {
@@ -506,10 +506,17 @@ public class ProsperoPfsBuilder
     }
 
     ///<summary>
-    ///Given an inode number and an index into the db[] array, returns the absolute offset of that array value
+    ///Given an inode number and an index into the db[] array, returns the absolute offset of that array value.
+    ///Inodes are packed per block with padding at the tail of each block, so the block boundary is applied
+    ///rather than treating the table as one contiguous run.
     ///</summary>
     long inoNumberToOffset(uint number, int db = 0)
-      => hdr.BlockSize + (ProsperoDinodeS32.SizeOf * number) + 0x64 + (36 * db);
+    {
+        long inodesPerBlock = hdr.BlockSize / ProsperoDinodeS32.SizeOf;
+        long block = 1 + number / inodesPerBlock;
+        long withinBlock = (number % inodesPerBlock) * ProsperoDinodeS32.SizeOf;
+        return (block * hdr.BlockSize) + withinBlock + 0x64 + (36 * db);
+    }
 
     /// <summary>
     /// Sets the data blocks. Also updates header for total number of data blocks.

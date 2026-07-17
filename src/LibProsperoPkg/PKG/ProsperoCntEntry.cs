@@ -178,6 +178,9 @@ public class ProsperoCntKeysEntry : ProsperoCntEntry
         var keys = new ProsperoCntEntryKey[7];
         // Wrapped-key size follows the entry size (RSA-3072 = 384 bytes).
         int keySize = ((int)e.DataSize - 32 - 7 * 32) / 7;
+        if (keySize <= 0)
+            throw new InvalidDataException(
+                $"CNT keys entry is too small ({e.DataSize} bytes) to hold the seed digest, 7 digests and 7 wrapped keys.");
         for (var x = 0; x < 7; x++)
         {
             digests[x] = pkg.ReadBytes(32);

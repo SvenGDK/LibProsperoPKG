@@ -350,7 +350,9 @@ public sealed class ProsperoCompressedPfsFile
         long dataOffset)
     {
         var blocks = new List<PfsBlock>();
-        if (!sections.TryGetValue(SectionBlockBoundaries, out var bnd) || bnd.Size < 2 * SectionEntrySize)
+        if (!sections.TryGetValue(SectionBlockBoundaries, out var bnd))
+            throw new InvalidDataException("Compression container is missing the block-boundary section.");
+        if (bnd.Size < 2 * SectionEntrySize)
             return blocks;
         if (!InRange(span.Length, bnd.Offset, bnd.Size))
             throw new InvalidDataException("Block boundary table is out of range.");
@@ -373,10 +375,12 @@ public sealed class ProsperoCompressedPfsFile
             ulong compNext = BinaryPrimitives.ReadUInt64LittleEndian(span[(e + SectionEntrySize)..]) & 0xFFFFFFFFFFFUL;
             ulong uncompNext = BinaryPrimitives.ReadUInt64LittleEndian(span[(e + SectionEntrySize + 8)..]) & 0xFFFFFFFFFFFUL;
 
-            int compSize = checked((int)((long)compNext - compRel));
-            int uncompSize = checked((int)((long)uncompNext - uncompRel));
-            if (compSize < 0 || uncompSize < 0)
-                throw new InvalidDataException($"Block {i} has a negative size in the boundary table.");
+            long compSizeL = (long)compNext - compRel;
+            long uncompSizeL = (long)uncompNext - uncompRel;
+            if (compSizeL < 0 || uncompSizeL < 0 || compSizeL > int.MaxValue || uncompSizeL > int.MaxValue)
+                throw new InvalidDataException($"Block {i} has an invalid size in the boundary table.");
+            int compSize = (int)compSizeL;
+            int uncompSize = (int)uncompSizeL;
 
             long absOffset = dataOffset + compRel;
             if (!InRange(span.Length, absOffset, compSize))

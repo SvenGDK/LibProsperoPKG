@@ -55,8 +55,8 @@ public static class ProsperoDdsEncoder
 
     /// <summary>
     /// Encodes a tightly-packed top-down RGBA8 buffer (<paramref name="width"/>x<paramref name="height"/>,
-    /// 4 bytes/pixel) into a BC7 DX10 DDS file. Dimensions are rounded up to a multiple of four for
-    /// block alignment (edge pixels are repeated), matching how DDS surfaces store partial blocks.
+    /// 4 bytes/pixel) into a BC7 DX10 DDS file. The header carries the true image dimensions; the block
+    /// surface is rounded up to a multiple of four (edge pixels are repeated) for the partial-block payload.
     /// </summary>
     public static byte[] EncodeRgbaToDds(byte[] rgba, int width, int height)
     {
@@ -72,7 +72,8 @@ public static class ProsperoDdsEncoder
         long payloadSize = (long)surfaceWidth * surfaceHeight; // BC7 is 16 bytes per 4x4 block = 1 byte/texel.
 
         byte[] dds = new byte[HeaderSize + payloadSize];
-        WriteHeader(dds, surfaceWidth, surfaceHeight, (uint)payloadSize);
+        // dwWidth/dwHeight are the true image dimensions; block padding is implicit in the BC7 format.
+        WriteHeader(dds, width, height, (uint)payloadSize);
 
         int offset = HeaderSize;
         var block = new byte[16 * 4];

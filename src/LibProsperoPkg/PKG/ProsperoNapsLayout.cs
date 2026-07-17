@@ -71,10 +71,11 @@ public readonly record struct NapsLayoutCounts(
     int NumCblockInfo)
 {
     /// <summary>
-    /// Number of 10-byte <c>CblockInfoOffsetByUblockIdxCompressed</c> (u2c) entries: one per group of
-    /// 8 uncompressed blocks (each entry carries a uint24 base plus 7 per-ublock deltas).
+    /// Number of 10-byte <c>CblockInfoOffsetByUblockIdxCompressed</c> (u2c) entries: <c>(m_numUBlocks + 8) &gt;&gt; 3</c>.
+    /// Each entry covers a group of 8 uncompressed blocks (a uint24 base plus 7 per-ublock deltas); the
+    /// <c>+8</c> (rather than <c>+7</c>) adds a trailing group whenever the block count is a multiple of 8.
     /// </summary>
-    public int NumU2cEntries => (((NumUBlocks + 7) & ~7) >> 3);
+    public int NumU2cEntries => ((NumUBlocks + 8) >> 3);
 
     /// <summary>
     /// Number of 6-byte <c>UncompressedOffsetStartByFileIdx</c> (fidx) entries. There is one entry per

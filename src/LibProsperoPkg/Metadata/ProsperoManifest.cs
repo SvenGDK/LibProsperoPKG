@@ -74,10 +74,11 @@ public sealed class ProsperoManifest
         ProsperoManifestKeys.TitleId,
         ProsperoManifestKeys.RepositoryUrl,
         ProsperoManifestKeys.ReactNativePlaystationVersion,
-        ProsperoManifestKeys.EnableAccessibility,
-        ProsperoManifestKeys.EnableHttpCache,
         ProsperoManifestKeys.ApplicationData,
         ProsperoManifestKeys.TwinTurbo,
+        // Optional keys have no established corpus position; they follow the fixed core order.
+        ProsperoManifestKeys.EnableAccessibility,
+        ProsperoManifestKeys.EnableHttpCache,
     ];
 
     /// <summary>Creates an empty document.</summary>

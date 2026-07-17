@@ -401,17 +401,21 @@ public static class ProsperoNapsLayoutBuilder
         (int Index, long Logical)[] sorted = stdLogical.OrderBy(t => t.Logical).ToArray();
 
         // I[u] = index of the first STD whose logical start >= u*0x40000; missing => terminator index.
+        // Both the per-ublock targets and the sorted logical starts increase monotonically, so the
+        // first-matching position only moves forward: one linear pass rather than a scan per ublock.
         int[] first = new int[numUBlocks];
+        int p = 0;
         for (int u = 0; u < numUBlocks; u++)
         {
             long target = (long)u * UBlock;
-            int found = numCblockInfo - 1;
-            foreach ((int idx, long logical) in sorted)
-            {
-                if (logical >= target) { found = idx; break; }
-            }
-            first[u] = found;
+            while (p < sorted.Length && sorted[p].Logical < target) p++;
+            first[u] = p < sorted.Length ? sorted[p].Index : numCblockInfo - 1;
         }
+
+        static byte ToU2cByte(int value, string field) => value is >= 0 and <= 255
+            ? (byte)value
+            : throw new NotSupportedException(
+                $"NAPS u2c {field} value {value} exceeds the single-byte field; this layout size is not supported.");
 
         int Delta(int ublock, int baseIndex)
         {
@@ -429,14 +433,14 @@ public static class ProsperoNapsLayoutBuilder
 
             // bytes[0..3] = 2nd-half deltas of group g (ublocks 8g+4 .. 8g+7) from baseG.
             for (int j = 0; j < 4; j++)
-                entry[j] = (byte)Delta(8 * g + 4 + j, baseG);
+                entry[j] = ToU2cByte(Delta(8 * g + 4 + j, baseG), "delta");
 
-            entry[4] = (byte)nextBase;                          // base of the next group
+            entry[4] = ToU2cByte(nextBase, "next-base");        // base of the next group
             // bytes[5..6] are always zero.
 
             // bytes[7..9] = the next group's first-three deltas (ublocks 8g+9 .. 8g+11) from nextBase.
             for (int j = 0; j < 3; j++)
-                entry[7 + j] = hasNext ? (byte)Delta(8 * g + 9 + j, nextBase) : (byte)0;
+                entry[7 + j] = hasNext ? ToU2cByte(Delta(8 * g + 9 + j, nextBase), "delta") : (byte)0;
 
             u2c.Add(ProsperoNapsLayout.DecodeU2cEntry(entry));
         }

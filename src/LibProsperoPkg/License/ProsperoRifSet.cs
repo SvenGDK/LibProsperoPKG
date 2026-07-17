@@ -100,7 +100,9 @@ public sealed class ProsperoRifSet
     public static ProsperoRifSet Read(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        long size = stream.Length;
+        // ReadAll parses from the current position to the end, so the recorded file size must measure
+        // that same region rather than the whole stream (which may start past position 0).
+        long size = stream.Length - stream.Position;
         IReadOnlyList<ProsperoRif> records = ProsperoRif.ReadAll(stream);
         return new ProsperoRifSet { Records = records, FileSize = size };
     }

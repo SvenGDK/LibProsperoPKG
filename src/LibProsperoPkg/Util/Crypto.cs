@@ -101,11 +101,11 @@ public static class Crypto
     /// <summary>
     /// Computes the SHA256 hash of the given data.
     /// </summary>
-    public static byte[] Sha256(byte[] data) => SHA256.Create().ComputeHash(data);
+    public static byte[] Sha256(byte[] data) => SHA256.HashData(data);
     public static byte[] Sha256(Stream data)
     {
         data.Position = 0;
-        return SHA256.Create().ComputeHash(data);
+        return SHA256.HashData(data);
     }
     /// <summary>
     /// Computes the SHA256 hash of the data in the stream between (start) and (start+length)

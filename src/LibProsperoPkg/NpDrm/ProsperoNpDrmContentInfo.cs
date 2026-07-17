@@ -157,32 +157,36 @@ public sealed class ProsperoNpDrmContentInfo
 
         Span<byte> head = stackalloc byte[0x60];
         stream.Position = 0;
-        int read = stream.Read(head);
-        if (read < 0x60)
-            throw new InvalidDataException("Could not read the container header.");
+        stream.ReadExactly(head);
 
-        ushort version = BinaryPrimitives.ReadUInt16BigEndian(head[0x06..]);
+        // The \x7FCNT container header is big-endian, so its version selector at +0x06 is a
+        // big-endian u16. The \x7FLIH / \x7FFIH image headers are little-endian structures, so
+        // their format field at +0x06 is a little-endian u16 (a finalized image stores 0x0003
+        // as the bytes 03 00). The selector is read in the byte order of the container carrying it.
 
         // \x7FCNT
         if (head[0] == 0x7F && head[1] == 0x43 && head[2] == 0x4E && head[3] == 0x54)
         {
-            if (version < 2) return 0;
-            throw new InvalidDataException($"Unsupported CNT format version {version}.");
+            ushort cntVersion = BinaryPrimitives.ReadUInt16BigEndian(head[0x06..]);
+            if (cntVersion < 2) return 0;
+            throw new InvalidDataException($"Unsupported CNT format version {cntVersion}.");
         }
 
         // \x7FLIH
         if (head[0] == 0x7F && head[1] == 0x4C && head[2] == 0x49 && head[3] == 0x48)
         {
-            if (version == 1) return (long)BinaryPrimitives.ReadUInt64LittleEndian(head[0x30..]);
-            throw new InvalidDataException($"Unsupported LIH version {version}.");
+            ushort lihVersion = BinaryPrimitives.ReadUInt16LittleEndian(head[0x06..]);
+            if (lihVersion == 1) return (long)BinaryPrimitives.ReadUInt64LittleEndian(head[0x30..]);
+            throw new InvalidDataException($"Unsupported LIH version {lihVersion}.");
         }
 
         // \x7FFIH
         if (head[0] == 0x7F && head[1] == 0x46 && head[2] == 0x49 && head[3] == 0x48)
         {
-            if (version == ProsperoPkgLayout.FihRequiredFormatVersion)
+            ushort fihVersion = BinaryPrimitives.ReadUInt16LittleEndian(head[0x06..]);
+            if (fihVersion == ProsperoPkgLayout.FihRequiredFormatVersion)
                 return (long)BinaryPrimitives.ReadUInt64LittleEndian(head[0x58..]);
-            throw new InvalidDataException($"Unsupported FIH format version {version} (expected {ProsperoPkgLayout.FihRequiredFormatVersion}).");
+            throw new InvalidDataException($"Unsupported FIH format version {fihVersion} (expected {ProsperoPkgLayout.FihRequiredFormatVersion}).");
         }
 
         throw new InvalidDataException("Unrecognised container magic for content-info.");

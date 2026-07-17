@@ -236,6 +236,13 @@ public static class ProsperoFself
             throw new ArgumentException($"Unexpected ELF program-header size {phentSize}.", nameof(elf));
         if (phoff + phnum * ElfPhdrSize > elf.Length)
             throw new ArgumentException("ELF program headers overrun the file.", nameof(elf));
+        // The header region embeds the ELF header and its program headers as one contiguous block, so
+        // the program-header table must directly follow the 0x40-byte ELF header. Reject any other
+        // layout rather than embed the wrong bytes.
+        if (phoff != ElfHeaderSize)
+            throw new ArgumentException(
+                $"The ELF program-header table must follow the ELF header at 0x{ElfHeaderSize:X} (e_phoff is 0x{phoff:X}).",
+                nameof(elf));
 
         var selected = SelectSegments(elf, phoff, phnum);
         if (selected.Count == 0)
@@ -248,6 +255,14 @@ public static class ProsperoFself
         int headerSize = extInfoStart + ExtInfoSize + ControlRegionSize;
         int metaSize = MetaFooterBase + (segCount + 4) * 0x40;
         int dataStart = headerSize + metaSize;
+
+        // The container header stores headerSize and metaSize as u16 fields (0x0C / 0x0E). A module
+        // with enough program headers to overflow them cannot be represented; fail rather than
+        // silently truncate the sizes.
+        if (headerSize > ushort.MaxValue || metaSize > ushort.MaxValue)
+            throw new ArgumentException(
+                $"The ELF has too many segments to fake-sign (header 0x{headerSize:X}, meta 0x{metaSize:X} exceed the 16-bit container fields).",
+                nameof(elf));
 
         // Assign segment file offsets: a 0x20 digest segment then the data (padded to 16) per pair.
         var segOffsets = new int[segCount];

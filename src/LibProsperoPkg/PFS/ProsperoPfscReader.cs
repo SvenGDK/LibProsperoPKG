@@ -99,6 +99,8 @@ public class ProsperoPfscReader : IMemoryReader
     {
         if (src + count > hdr.DataLength)
             throw new ArgumentException("Attempt to read beyond end of file");
+        if (count <= 0)
+            return; // nothing to read; avoid an out-of-range sector fetch at end-of-image
         var sectorSize = hdr.BlockSz;
         var sectorBuffer = new byte[sectorSize];
         var currentSector = (int)(src / sectorSize);

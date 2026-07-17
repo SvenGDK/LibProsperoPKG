@@ -492,9 +492,11 @@ internal static class KrakenDecoder
 
         if (numSyms == 1)
         {
+            // A single-symbol array carries no payload streams: the whole compressed array is the
+            // code-length header. Report the full source size consumed, matching the caller's contract.
             byte fill = syms[0];
             for (int i = 0; i < outputSize; i++) output[i] = fill;
-            return sp - srcEnd;
+            return srcSize;
         }
 
         var lut = new NewHuffLut();

@@ -201,7 +201,7 @@ See **[docs/](docs/)** for the full feature status and the PS5 package technical
 
 ---
 
-## Scope
+## Coverage
 
 LibProsperoPkg produces a complete debug package end to end: the finalized `\x7FFIH` image, the
 `\x7FCNT` metadata container, the inner-image assembly, the layout/metric metadata and the trailing
